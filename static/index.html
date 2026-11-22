@@ -1,0 +1,1549 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Video Editing Tool</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b0d12; --panel:#171a21; --line:#292d38; --accent:#ff4d36; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:Arial,sans-serif; background:var(--bg); color:#f5f7fb; }
+    header { height:66px; display:flex; align-items:center; justify-content:space-between; padding:0 24px; border-bottom:1px solid var(--line); background:#11141b; position:sticky; top:0; z-index:20; }
+    header h1 { margin:0; font-size:22px; }
+    .header-actions { display:flex; align-items:center; gap:8px; }
+    #key-modal { position:fixed; inset:0; z-index:100; display:none; place-items:center; background:rgba(0,0,0,.72); }
+    #key-modal.open { display:grid; }
+    #key-dialog { width:min(520px,calc(100% - 32px)); border:1px solid var(--line); border-radius:10px; background:#11141b; overflow:hidden; }
+    #key-dialog-header { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--line); }
+    #key-dialog-body { padding:16px; }
+    #key-dialog-footer { display:flex; justify-content:flex-end; gap:8px; padding:12px 16px; border-top:1px solid var(--line); }
+    button, input, textarea { font:inherit; }
+    button { cursor:pointer; }
+    .primary { border:0; border-radius:7px; padding:10px 14px; background:var(--accent); color:white; font-weight:700; }
+    .secondary { border:1px solid #464d5c; border-radius:7px; padding:9px 12px; background:#242832; color:white; }
+    .danger { border:1px solid #b84d4d; border-radius:7px; padding:9px 12px; background:#462528; color:white; }
+    #first-page, #project-page { min-height:calc(100vh - 66px); }
+    #project-form { width:min(620px,calc(100% - 32px)); margin:48px auto; padding:24px; border:1px solid var(--line); border-radius:12px; background:#11141b; }
+    #project-form h2 { margin-top:0; }
+    .field { display:grid; gap:7px; margin-bottom:16px; }
+    .field input, .field textarea { width:100%; border:1px solid #46505f; border-radius:7px; padding:11px; background:#0b0d12; color:white; }
+    .field textarea { resize:vertical; line-height:1.45; min-height:140px; }
+    #project-list { display:flex; flex-wrap:wrap; gap:10px; margin-top:24px; }
+    .project-card { border:1px solid var(--line); border-radius:9px; padding:12px 14px; background:var(--panel); }
+    .tabs { height:48px; display:flex; align-items:end; gap:4px; border-bottom:1px solid var(--line); padding:0 16px; background:#11141b; }
+    .tab { border:0; border-radius:7px 7px 0 0; padding:12px 16px; background:transparent; color:#bfc6d2; }
+    .tab.active { background:var(--panel); color:white; border-bottom:2px solid var(--accent); }
+    #tab-content { height:calc(100vh - 114px); }
+    .tab-panel { display:none; height:100%; }
+    .tab-panel.active { display:grid; }
+    #videos-panel, .secondary-video-panel { grid-template-columns:360px minmax(0,1fr); }
+    aside { min-height:0; border-right:1px solid var(--line); overflow-y:auto; background:#0f1117; }
+    .playlist-heading { display:flex; align-items:center; justify-content:space-between; padding:12px 10px 6px; }
+    .playlist-actions { display:flex; gap:6px; }
+    #video-list { list-style:none; margin:0; padding:10px; }
+    .video-item { display:grid; grid-template-columns:28px 112px minmax(0,1fr); gap:8px; align-items:center; width:100%; margin:3px 0; padding:6px; border-radius:9px; }
+    .video-item:hover { background:#242832; }
+    .video-item.active { background:var(--panel); box-shadow:inset 3px 0 var(--accent); }
+    .video-item.dragging { opacity:.45; }
+    .video-select { accent-color:var(--accent); }
+    .video-button { display:grid; grid-template-columns:112px 1fr; gap:10px; align-items:center; border:0; background:transparent; color:white; text-align:left; padding:0; }
+    .thumbnail { display:grid; place-items:center; width:112px; aspect-ratio:16/9; border-radius:7px; background:linear-gradient(135deg,#303746,#171b24); font-size:12px; line-height:1.05; text-align:center; overflow:hidden; padding:6px; word-break:break-word; }
+    .name { display:block; font-weight:700; }
+    .size { display:block; margin-top:5px; color:#9da7b7; font-size:12px; }
+    #player-section { min-width:0; min-height:0; padding:24px; overflow-y:auto; }
+    #player-wrap { max-width:1280px; margin:auto; }
+    video { width:100%; max-height:72vh; display:block; background:black; border-radius:10px; }
+    #status, #project-status { color:#ffb4a9; }
+    .simple-panel { padding:24px; overflow-y:auto; }
+    .tab-panel.simple-panel.active { display:block; }
+    .card-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(280px,1fr)); gap:12px; }
+    .media-card { border:1px solid var(--line); border-radius:9px; padding:14px; background:var(--panel); }
+    .media-card button { margin-top:10px; }
+    .muted { color:#9da7b7; }
+    .folder-row { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:8px; }
+    #folder-modal { position:fixed; inset:0; z-index:100; display:none; place-items:center; background:rgba(0,0,0,.72); }
+    #folder-modal.open { display:grid; }
+    #folder-dialog { width:min(680px,calc(100% - 32px)); max-height:75vh; display:grid; grid-template-rows:auto auto minmax(0,1fr) auto; border:1px solid var(--line); border-radius:10px; background:#11141b; }
+    #folder-dialog-header { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--line); }
+    #folder-drive-list { display:flex; gap:6px; padding:8px 16px; border-bottom:1px solid var(--line); overflow-x:auto; }
+    #folder-directory-list { overflow-y:auto; padding:8px 16px; }
+    .folder-option { display:block; width:100%; border:0; border-radius:6px; padding:9px; background:transparent; color:white; text-align:left; }
+    .folder-option:hover { background:#242832; }
+    #folder-dialog-footer { display:flex; justify-content:flex-end; gap:8px; padding:12px 16px; border-top:1px solid var(--line); }
+    .flagged-list-item { display:grid; grid-template-columns:28px minmax(0,1fr); align-items:center; gap:8px; padding:6px; }
+    .flagged-entry { display:grid; grid-template-columns:112px 1fr; align-items:center; gap:10px; width:100%; border:0; border-radius:9px; padding:8px; background:transparent; color:white; text-align:left; }
+    .flagged-entry:hover { background:#242832; }
+    .flagged-entry.active { background:var(--panel); box-shadow:inset 3px 0 var(--accent); }
+    #generate-player-section, #prompt-manager-section { min-width:0; min-height:0; padding:24px; overflow:auto; }
+    #generate-player-wrap, #prompt-manager-wrap { max-width:980px; }
+    #generate-detail, #prompt-preview-detail { white-space:pre-wrap; line-height:1.45; max-height:46vh; overflow:auto; border:1px solid var(--line); border-radius:10px; padding:14px; background:#11141b; }
+    #prompt-manager-list { list-style:none; margin:0; padding:0; }
+    .prompt-row { border:1px solid var(--line); border-radius:9px; padding:12px; margin-bottom:10px; background:var(--panel); }
+    .prompt-row-head { display:flex; align-items:center; justify-content:space-between; }
+    .prompt-row-meta { font-size:12px; margin:4px 0 8px; }
+    .prompt-row-text { white-space:pre-wrap; line-height:1.4; max-height:120px; overflow:auto; }
+    .prompt-card { border:1px solid var(--line); border-radius:12px; padding:20px; background:#11141b; margin-bottom:20px; }
+    .prompt-card h2 { margin-top:0; }
+    .prompt-preview-header { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .prompt-preview-header h3 { margin:0; }
+    .field select { width:100%; border:1px solid #46505f; border-radius:7px; padding:11px; background:#0b0d12; color:white; font:inherit; }
+    #llm-prompt-status { color:#ffb4a9; min-height:1.2em; }
+    .prompt-manager-wrap { max-width:980px; }
+    .prompt-list { list-style:none; margin:0; padding:0; }
+    .form-status { color:#ffb4a9; min-height:1.2em; }
+    .field input[type=file] { padding:9px; }
+    .prompt-edit { display:grid; gap:10px; }
+    .prompt-edit label { color:#9da7b7; font-size:12px; }
+    .prompt-edit input, .prompt-edit textarea { width:100%; border:1px solid #46505f; border-radius:7px; padding:9px; background:#0b0d12; color:white; }
+    .prompt-edit textarea { min-height:240px; resize:vertical; line-height:1.4; }
+    .prompt-edit-actions { display:flex; gap:8px; align-items:center; }
+    .gv-settings { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; }
+    .gv-controls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid var(--line); }
+    .gv-controls input[type=file] { flex:1 1 240px; border:1px solid #46505f; border-radius:7px; padding:7px; background:#0b0d12; color:white; }
+    .gv-preview { margin-top:12px; max-height:360px; }
+    #prompt-form-status { color:#ffb4a9; min-height:1.2em; margin-bottom:0; }
+    #generated-audio { width:100%; margin-top:16px; }
+    #replace-audio-panel { grid-template-columns:260px 260px 300px minmax(300px,1fr); }
+    .replace-column { border-right:1px solid var(--line); min-height:0; overflow-y:auto; }
+    .replace-item { display:grid; grid-template-columns:24px 112px minmax(0,1fr); gap:8px; align-items:center; padding:7px 8px; margin:3px 0; border-radius:8px; }
+    .replace-entry { display:grid; grid-template-columns:112px minmax(0,1fr); gap:10px; align-items:center; min-width:0; border:0; border-radius:9px; padding:0; background:transparent; color:white; text-align:left; }
+    .replace-item:hover { background:#242832; }
+    .replace-item.active { background:var(--panel); box-shadow:inset 3px 0 var(--accent); }
+    @media(max-width:800px){
+      main { grid-template-columns:1fr; }
+      #videos-panel { grid-template-columns:290px minmax(0,1fr); }
+    }
+  </style>
+</head>
+<body>
+  <div id="folder-modal" role="dialog" aria-modal="true">
+    <div id="folder-dialog">
+      <div id="folder-dialog-header"><strong id="folder-dialog-title">Select folder</strong><button id="folder-close" class="secondary" type="button">Close</button></div>
+      <div id="folder-drive-list"></div>
+      <div id="folder-directory-list"></div>
+      <div id="folder-dialog-footer"><button id="folder-parent" class="secondary" type="button">Parent folder</button><button id="folder-select" class="primary" type="button">Select this folder</button></div>
+    </div>
+  </div>
+
+  <div id="key-modal" role="dialog" aria-modal="true">
+    <form id="key-dialog">
+      <div id="key-dialog-header"><strong>GEMINI_API_KEY</strong><button id="key-close" class="secondary" type="button">Close</button></div>
+      <div id="key-dialog-body">
+        <p id="key-current-status" class="muted" style="margin-top:0;">Checking key status...</p>
+        <div class="field">
+          <label for="gemini-key-input">API key</label>
+          <div class="folder-row">
+            <input id="gemini-key-input" type="password" autocomplete="off" placeholder="Paste GEMINI_API_KEY">
+            <button id="key-toggle-visibility" class="secondary" type="button">Show</button>
+          </div>
+        </div>
+        <p class="muted" style="font-size:12px; margin-bottom:6px;">Stored in server process memory only (not saved to SQLite).</p>
+        <p id="key-save-status" class="form-status" style="margin:0;"></p>
+      </div>
+      <div id="key-dialog-footer">
+        <button id="key-clear" class="danger" type="button">Clear</button>
+        <button id="key-save" class="primary" type="submit">Save key</button>
+      </div>
+    </form>
+  </div>
+
+  <header>
+    <h1>Video Editing Tool</h1>
+    <div class="header-actions">
+      <button id="edit-key-button" class="secondary" type="button">edit_key</button>
+      <button id="new-project-button" class="secondary" hidden>New project</button>
+    </div>
+  </header>
+
+  <main id="first-page">
+    <form id="project-form">
+      <h2>Create a video project</h2>
+      <div class="field"><label>Project name</label><input id="project-name" required></div>
+      <div class="field"><label>Input video folder</label><div class="folder-row"><input id="input-video-folder" required value="C:\\Users\\anish\\Documents\\mediaprocessing\\racingproject\\inputvideos"><button class="secondary browse-folder" type="button" data-target="input-video-folder" data-title="Select input video folder">Browse</button></div></div>
+      <div class="field"><label>Input audio folder</label><div class="folder-row"><input id="input-audio-folder" required value="C:\\Users\\anish\\Documents\\mediaprocessing\\racingproject\\inputaudios"><button class="secondary browse-folder" type="button" data-target="input-audio-folder" data-title="Select input audio folder">Browse</button></div></div>
+      <div class="field"><label>Output video folder</label><div class="folder-row"><input id="output-video-folder" required value="C:\\Users\\anish\\Documents\\mediaprocessing\\racingproject\\outputvideos"><button class="secondary browse-folder" type="button" data-target="output-video-folder" data-title="Select output video folder">Browse</button></div></div>
+      <button class="primary" type="submit">Create project</button>
+      <p id="project-status"></p>
+      <h3>Existing projects</h3>
+      <div id="project-list"></div>
+    </form>
+  </main>
+
+  <main id="project-page" hidden>
+    <div class="tabs">
+      <button class="tab active" data-tab="generate-video-prompt-panel">Generate video prompt</button>
+      <button class="tab" data-tab="generate-video-panel">Generate video</button>
+      <button class="tab" data-tab="generate-audio-prompt-panel">Generate audio prompt</button>
+      <button class="tab" data-tab="generate-audio-panel">Generate audio</button>
+      <button class="tab" data-tab="videos-panel">Input videos</button>
+      <button class="tab" data-tab="flagged-panel">Flagged videos</button>
+      <button class="tab" data-tab="outputs-panel">Output videos</button>
+      <button class="tab" data-tab="replace-audio-panel">Replace audio</button>
+    </div>
+
+    <div id="tab-content">
+      <div id="generate-audio-prompt-panel" class="tab-panel simple-panel">
+        <section id="prompt-manager-section">
+          <div id="prompt-manager-wrap">
+            <form id="llm-prompt-form" class="prompt-card">
+              <h2>Generate audio prompt from video</h2>
+              <div class="field">
+                <label for="llm-model-select">Model ID</label>
+                <select id="llm-model-select">
+                  <option value="gemini-3.8-flash" selected>gemini-3.8-flash</option>
+                  <option value="gemini-3.8-pro">gemini-3.8-pro</option>
+                  <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                  <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="llm-video-select">Output video</label>
+                <select id="llm-video-select"></select>
+              </div>
+              <div class="field">
+                <label for="llm-context-input">Text context</label>
+                <textarea id="llm-context-input" placeholder="e.g. This is a video about a car race. The music should match typical arcade racing gameplay music."></textarea>
+              </div>
+              <button id="llm-generate-button" class="primary" type="submit">Generate audio prompt</button>
+              <p class="muted">The new record will use audio model lyria-3.5.</p>
+              <p id="llm-prompt-status"></p>
+            </form>
+
+            <form id="audio-prompt-form" class="prompt-card">
+              <h2>Add prompt manually</h2>
+              <div class="field">
+                <label for="prompt-model-input">Model name</label>
+                <input id="prompt-model-input" list="prompt-model-suggestions" required placeholder="e.g. lyria-3.5" value="lyria-3.5">
+                <datalist id="prompt-model-suggestions">
+                  <option value="lyria-3.5"></option>
+                </datalist>
+              </div>
+              <div class="field">
+                <label for="prompt-instructions-input">Instructions</label>
+                <textarea id="prompt-instructions-input" required placeholder="Enter audio prompt instructions..."></textarea>
+              </div>
+              <button id="create-prompt-button" class="primary" type="submit">Create prompt</button>
+              <p id="prompt-form-status"></p>
+            </form>
+
+            <div class="prompt-card">
+              <h3>Saved prompts</h3>
+              <ul id="prompt-manager-list"></ul>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div id="generate-video-prompt-panel" class="tab-panel simple-panel active">
+        <section class="prompt-manager-section">
+          <div class="prompt-manager-wrap">
+            <form id="vp-llm-form" class="prompt-card">
+              <h2>Generate video prompt</h2>
+              <div class="field">
+                <label for="vp-model-select">Model ID</label>
+                <select id="vp-model-select">
+                  <option value="gemini-2.5-pro" selected>gemini-2.5-pro</option>
+                  <option value="gemini-3.8-pro">gemini-3.8-pro</option>
+                  <option value="gemini-3.8-flash">gemini-3.8-flash</option>
+                  <option value="gemini-2.5-flash">gemini-2.5-flash</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="vp-images-input">Reference images (optional)</label>
+                <input id="vp-images-input" type="file" accept="image/*" multiple>
+                <span id="vp-images-summary" class="muted"></span>
+              </div>
+              <div class="field">
+                <label for="vp-parts-input">Number of parts (scenes)</label>
+                <input id="vp-parts-input" type="number" min="1" max="60" value="30" required>
+              </div>
+              <div class="field">
+                <label for="vp-context-input">Text context / instructions</label>
+                <textarea id="vp-context-input" placeholder="Describe the story, visual style, clip duration, dialogue/lip-sync or silent action, timestamped beats, and music preferences..."></textarea>
+              </div>
+              <button id="vp-generate-button" class="primary" type="submit">Generate video prompt</button>
+              <p class="muted">One record per scene is created with video model veo-3.1. Large requests can take a few minutes.</p>
+              <p id="vp-llm-status" class="form-status"></p>
+            </form>
+
+            <form id="vp-manual-form" class="prompt-card">
+              <h2>Add video prompt manually</h2>
+              <div class="field">
+                <label for="vp-manual-model">Model name</label>
+                <input id="vp-manual-model" required value="veo-3.1">
+              </div>
+              <div class="field">
+                <label for="vp-manual-scene">Scene</label>
+                <input id="vp-manual-scene" type="number" min="1" max="999" value="1" required>
+              </div>
+              <div class="field">
+                <label for="vp-manual-instructions">Instructions</label>
+                <textarea id="vp-manual-instructions" required placeholder="Enter video prompt instructions..."></textarea>
+              </div>
+              <button class="primary" type="submit">Create prompt</button>
+              <p id="vp-manual-status" class="form-status"></p>
+            </form>
+
+            <div class="prompt-card">
+              <h3>Saved video prompts</h3>
+              <ul id="video-prompt-list" class="prompt-list"></ul>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div id="generate-video-panel" class="tab-panel simple-panel">
+        <section class="prompt-manager-section">
+          <div class="prompt-manager-wrap">
+            <div class="prompt-card">
+              <h2>Generate video</h2>
+              <p class="muted">Select an optional reference image for any scene and click Generate video. Generated MP4s are saved directly to the project's Input videos folder.</p>
+              <div class="gv-settings">
+                <div class="field">
+                  <label for="gv-model-select">Veo model</label>
+                  <select id="gv-model-select">
+                    <option value="veo-3.1-generate-preview" selected>veo-3.1-generate-preview</option>
+                    <option value="veo-3.0-generate-001">veo-3.0-generate-001</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="gv-aspect-select">Aspect ratio</label>
+                  <select id="gv-aspect-select">
+                    <option value="16:9" selected>16:9</option>
+                    <option value="9:16">9:16</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="gv-duration-select">Duration (max 8s)</label>
+                  <select id="gv-duration-select">
+                    <option value="8" selected>8 seconds</option>
+                    <option value="6">6 seconds</option>
+                    <option value="4">4 seconds</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="prompt-card">
+              <h3>Scenes</h3>
+              <ul id="generate-video-scene-list" class="prompt-list"></ul>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <div id="generate-audio-panel" class="tab-panel secondary-video-panel">
+        <aside>
+          <div class="playlist-heading">
+            <strong>Audio prompts</strong>
+            <button id="generate-music-button" class="primary" type="button">Generate music</button>
+          </div>
+          <ul id="audio-prompt-list" class="media-playlist"></ul>
+        </aside>
+        <section id="generate-player-section">
+          <div id="generate-player-wrap">
+            <h2 id="generate-now-playing">Select a prompt</h2>
+            <p id="generate-meta" class="muted"></p>
+            <div id="generate-detail" class="muted">Select one row, then generate music.</div>
+            <audio id="generated-audio" controls preload="none" hidden></audio>
+            <p id="generate-status"></p>
+          </div>
+        </section>
+      </div>
+
+      <div id="videos-panel" class="tab-panel">
+        <aside>
+          <div class="playlist-heading">
+            <strong>Video sequence</strong>
+            <div class="playlist-actions">
+              <button id="flag-button" class="danger">Flag</button>
+              <button id="combine-button" class="primary">Combine</button>
+            </div>
+          </div>
+          <ul id="video-list"></ul>
+        </aside>
+        <section id="player-section">
+          <div id="player-wrap">
+            <h2 id="now-playing">Select a video</h2>
+            <video id="video-player" controls playsinline preload="metadata"></video>
+            <p id="status"></p>
+          </div>
+        </section>
+      </div>
+
+      <div id="flagged-panel" class="tab-panel secondary-video-panel">
+        <aside>
+          <div class="playlist-heading">
+            <strong>Flagged video list</strong>
+            <button id="remove-flags-button" class="danger" type="button">Remove from list</button>
+          </div>
+          <ul id="flagged-list" class="media-playlist"></ul>
+        </aside>
+        <section id="flagged-player-section">
+          <div id="flagged-player-wrap">
+            <h2 id="flagged-now-playing">Select a flagged video</h2>
+            <video id="flagged-player" controls playsinline preload="metadata"></video>
+          </div>
+        </section>
+      </div>
+
+      <div id="outputs-panel" class="tab-panel secondary-video-panel">
+        <aside>
+          <div class="playlist-heading"><strong>Output video list</strong><button id="delete-outputs-button" class="danger" type="button">Delete</button></div>
+          <ul id="output-list" class="media-playlist"></ul>
+        </aside>
+        <section id="output-player-section">
+          <div id="output-player-wrap">
+            <video id="output-player" controls playsinline preload="metadata"></video>
+          </div>
+        </section>
+      </div>
+
+      <div id="replace-audio-panel" class="tab-panel replace-audio-layout">
+        <aside class="replace-column">
+          <div class="playlist-heading"><strong>MP3 / audio files</strong></div>
+          <ul id="replacement-audio-list" class="media-playlist"></ul>
+        </aside>
+        <aside class="replace-column">
+          <div class="playlist-heading">
+            <strong>Output MP4 files</strong>
+            <button id="replace-audio-button" class="primary" type="button">Replace audio</button>
+          </div>
+          <ul id="replacement-output-list" class="media-playlist"></ul>
+        </aside>
+        <aside class="replace-column">
+          <div class="playlist-heading">
+            <strong>Replaced videos</strong>
+            <button id="delete-replaced-button" class="danger" type="button">Delete</button>
+          </div>
+          <ul id="replaced-video-list" class="media-playlist"></ul>
+        </aside>
+        <section id="replaced-player-section">
+          <div id="replaced-player-wrap">
+            <h2 id="replaced-now-playing">Select an item to preview</h2>
+            <video id="replaced-player" controls playsinline preload="metadata"></video>
+            <p id="replace-status"></p>
+          </div>
+        </section>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const firstPage = document.getElementById("first-page");
+    const projectPage = document.getElementById("project-page");
+    const newProjectButton = document.getElementById("new-project-button");
+    const folderModal = document.getElementById("folder-modal");
+    const folderDialog = document.getElementById("folder-dialog");
+    const folderDriveList = document.getElementById("folder-drive-list");
+    const folderDirectoryList = document.getElementById("folder-directory-list");
+    let currentProject = null;
+    let currentVideos = [];
+
+    async function loadProjects(openLatest = false) {
+      const response = await fetch("/api/projects");
+      const projects = await response.json();
+      const list = document.getElementById("project-list");
+      list.innerHTML = "";
+      projects.forEach(project => {
+        const card = document.createElement("button");
+        card.className = "project-card";
+        card.textContent = project.name;
+        card.onclick = () => openProject(project);
+        list.appendChild(card);
+      });
+      if (openLatest && projects.length) openProject(projects[0]);
+    }
+
+    async function createProject(event) {
+      event.preventDefault();
+      const status = document.getElementById("project-status");
+      status.textContent = "Creating project...";
+      const body = {
+        name: document.getElementById("project-name").value,
+        input_video_folder: document.getElementById("input-video-folder").value,
+        input_audio_folder: document.getElementById("input-audio-folder").value,
+        output_video_folder: document.getElementById("output-video-folder").value
+      };
+      const response = await fetch("/api/projects", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body)});
+      const data = await response.json();
+      if (!response.ok) { status.textContent = data.detail || "Unable to create project"; return; }
+      await loadProjects();
+      openProject({...body, id:data.id});
+    }
+    document.getElementById("project-form").onsubmit = createProject;
+
+    newProjectButton.onclick = () => {
+      projectPage.hidden = true; firstPage.hidden = false; newProjectButton.hidden = true;
+      loadProjects();
+    };
+
+    const keyModal = document.getElementById("key-modal");
+    const keyInput = document.getElementById("gemini-key-input");
+    const keyCurrentStatus = document.getElementById("key-current-status");
+    const keySaveStatus = document.getElementById("key-save-status");
+
+    async function refreshGeminiKeyStatus() {
+      try {
+        const response = await fetch("/api/gemini-key");
+        const data = await response.json();
+        keyCurrentStatus.textContent = data.configured
+          ? `Current key: ${data.masked} (configured)`
+          : "Current key: not set";
+      } catch (error) {
+        keyCurrentStatus.textContent = "Unable to check key status.";
+      }
+    }
+
+    document.getElementById("edit-key-button").onclick = async () => {
+      keyInput.value = "";
+      keyInput.type = "password";
+      document.getElementById("key-toggle-visibility").textContent = "Show";
+      keySaveStatus.textContent = "";
+      keyModal.classList.add("open");
+      await refreshGeminiKeyStatus();
+      keyInput.focus();
+    };
+
+    document.getElementById("key-close").onclick = () => {
+      keyModal.classList.remove("open");
+      keyInput.value = "";
+    };
+
+    document.getElementById("key-toggle-visibility").onclick = event => {
+      const showing = keyInput.type === "text";
+      keyInput.type = showing ? "password" : "text";
+      event.target.textContent = showing ? "Show" : "Hide";
+    };
+
+    document.getElementById("key-dialog").onsubmit = async event => {
+      event.preventDefault();
+      const apiKey = keyInput.value.trim();
+      if (!apiKey) { keySaveStatus.textContent = "Enter a GEMINI_API_KEY value."; return; }
+      keySaveStatus.textContent = "Saving...";
+      try {
+        const response = await fetch("/api/gemini-key", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({api_key: apiKey})
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) { keySaveStatus.textContent = data.detail || "Unable to save key"; return; }
+        keyInput.value = "";
+        keySaveStatus.textContent = `Saved (${data.masked})`;
+        await refreshGeminiKeyStatus();
+      } catch (error) {
+        keySaveStatus.textContent = "Unable to save key";
+      }
+    };
+
+    document.getElementById("key-clear").onclick = async () => {
+      try {
+        await fetch("/api/gemini-key", {method: "DELETE"});
+        keyInput.value = "";
+        keySaveStatus.textContent = "Key cleared.";
+        await refreshGeminiKeyStatus();
+      } catch (error) {
+        keySaveStatus.textContent = "Unable to clear key";
+      }
+    };
+
+    async function openProject(project) {
+      currentProject = project;
+      firstPage.hidden = true;
+      projectPage.hidden = false;
+      newProjectButton.hidden = false;
+      document.querySelectorAll(".tab").forEach(tab => tab.classList.toggle("active", tab.dataset.tab === "generate-video-prompt-panel"));
+      document.querySelectorAll(".tab-panel").forEach(panel => panel.classList.toggle("active", panel.id === "generate-video-prompt-panel"));
+      await loadPromptRecords();
+      await loadVideoPrompts();
+      await loadGenerateVideoScenes();
+      await loadAudioPrompts();
+      await loadProjectVideos();
+      await loadFlagged();
+      await loadOutputs();
+      await loadReplacementAssets();
+    }
+
+    async function deletePromptRecord(id) {
+      if (!confirm(`Delete Prompt ${id}?`)) return;
+      const response = await fetch(`/api/audio-prompts/${encodeURIComponent(id)}`, {method: "DELETE"});
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        alert(data.detail || `Unable to delete Prompt ${id}`);
+        return;
+      }
+      document.getElementById("prompt-form-status").textContent = `Deleted Prompt ${id}`;
+      await loadPromptRecords();
+      await loadAudioPrompts();
+    }
+
+    async function loadGenerateVideoScenes() {
+      const list = document.getElementById("generate-video-scene-list");
+      list.innerHTML = "";
+      let rows = [];
+      try {
+        const response = await fetch("/api/video-prompts");
+        rows = await response.json();
+      } catch (error) {
+        list.innerHTML = '<li class="muted">Unable to load scenes.</li>';
+        return;
+      }
+      if (!rows.length) {
+        list.innerHTML = '<li class="muted">No scenes yet. Create scenes in the Generate video prompt tab first.</li>';
+        return;
+      }
+      rows.forEach(row => {
+        const item = document.createElement("li");
+        item.className = "prompt-row";
+        item.innerHTML = `
+          <div class="prompt-row-head"><strong></strong><span class="playlist-actions"><button type="button" class="secondary gv-edit">Edit</button></span></div>
+          <div class="muted prompt-row-meta"></div>
+          <div class="prompt-row-text"></div>
+          <div class="gv-controls">
+            <input type="file" accept="image/*" class="gv-image-input" aria-label="Optional reference image">
+            <button type="button" class="primary gv-generate-btn">Generate video</button>
+          </div>
+          <p class="form-status gv-status"></p>
+          <video class="gv-preview" controls playsinline preload="metadata" hidden></video>
+        `;
+        item.querySelector("strong").textContent = row.scene_number ? `Scene ${row.scene_number}` : `Prompt ${row.id}`;
+        item.querySelector(".prompt-row-meta").textContent = `Series ${row.series_id} · ${row.model} · ${row.created_on}`
+          + (row.image_files ? ` · prompt images: ${row.image_files}` : "");
+        item.querySelector(".prompt-row-text").textContent = row.instructions || "";
+        item.querySelector(".gv-edit").onclick = () => beginPromptEdit(item, row, {
+          url: `/api/video-prompts/${encodeURIComponent(row.id)}`,
+          withScene: true,
+          reload: async () => { await loadGenerateVideoScenes(); await loadVideoPrompts(); }
+        });
+
+        const fileInput = item.querySelector(".gv-image-input");
+        const genBtn = item.querySelector(".gv-generate-btn");
+        const status = item.querySelector(".gv-status");
+        const preview = item.querySelector(".gv-preview");
+
+        genBtn.onclick = async () => {
+          if (!currentProject) { status.textContent = "Open a project first."; return; }
+          genBtn.disabled = true;
+          status.textContent = "Generating video with Veo. This may take a few minutes...";
+          try {
+            let imagePayload = null;
+            if (fileInput.files && fileInput.files.length) {
+              imagePayload = await readImageAsBase64(fileInput.files[0]);
+            }
+            const response = await fetch(`/api/projects/${currentProject.id}/generate-video`, {
+              method: "POST",
+              headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({
+                prompt_id: row.id,
+                model: document.getElementById("gv-model-select").value,
+                aspect_ratio: document.getElementById("gv-aspect-select").value,
+                duration_seconds: Number(document.getElementById("gv-duration-select").value),
+                image: imagePayload
+              })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+              status.textContent = data.detail || "Video generation failed";
+              return;
+            }
+            status.textContent = `Saved ${data.name} to Input videos`;
+            preview.hidden = false;
+            preview.src = data.stream_url;
+            preview.load();
+            await loadProjectVideos();
+          } catch (error) {
+            status.textContent = error.message || "Video generation failed";
+          } finally {
+            genBtn.disabled = false;
+          }
+        };
+
+        list.appendChild(item);
+      });
+    }
+
+    async function loadVideoPrompts() {
+      const list = document.getElementById("video-prompt-list");
+      list.innerHTML = "";
+      let rows = [];
+      try {
+        const response = await fetch("/api/video-prompts");
+        rows = await response.json();
+      } catch (error) {
+        list.innerHTML = '<li class="muted">Unable to load video prompts.</li>';
+        return;
+      }
+      if (!rows.length) {
+        list.innerHTML = '<li class="muted">No video prompts.</li>';
+        return;
+      }
+      rows.forEach(row => {
+        const item = document.createElement("li");
+        item.className = "prompt-row";
+        item.innerHTML = `<div class="prompt-row-head"><strong></strong><span class="playlist-actions"><button type="button" class="secondary vp-edit">Edit</button><button type="button" class="secondary vp-copy">Copy</button><button type="button" class="danger vp-delete">Delete</button></span></div><div class="muted prompt-row-meta"></div><div class="prompt-row-text"></div>`;
+        item.querySelector("strong").textContent = row.scene_number ? `Scene ${row.scene_number}` : `Prompt ${row.id}`;
+        item.querySelector(".prompt-row-meta").textContent = `Series ${row.series_id} · ${row.model} · ${row.created_on}`
+          + (row.parts ? ` · ${row.parts} parts` : "")
+          + (row.image_files ? ` · images: ${row.image_files}` : "")
+          + (row.text_context ? ` · context: ${row.text_context}` : "");
+        item.querySelector(".prompt-row-text").textContent = row.instructions || "";
+        item.querySelector(".vp-copy").onclick = async event => {
+          try {
+            await navigator.clipboard.writeText(row.instructions || "");
+            event.target.textContent = "Copied";
+          } catch (error) {
+            event.target.textContent = "Copy failed";
+          }
+          setTimeout(() => { event.target.textContent = "Copy"; }, 1500);
+        };
+        item.querySelector(".vp-delete").onclick = () => deleteVideoPrompt(row.id, row.scene_number);
+        item.querySelector(".vp-edit").onclick = () => beginPromptEdit(item, row, {
+          url: `/api/video-prompts/${encodeURIComponent(row.id)}`,
+          withScene: true,
+          reload: loadVideoPrompts
+        });
+        list.appendChild(item);
+      });
+    }
+
+    async function deleteVideoPrompt(id, scene) {
+      if (!confirm(scene ? `Delete Scene ${scene}?` : `Delete Prompt ${id}?`)) return;
+      const response = await fetch(`/api/video-prompts/${encodeURIComponent(id)}`, {method: "DELETE"});
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        alert(data.detail || `Unable to delete Video prompt ${id}`);
+        return;
+      }
+      document.getElementById("vp-manual-status").textContent = scene ? `Deleted Scene ${scene}` : `Deleted Prompt ${id}`;
+      await loadVideoPrompts();
+    }
+
+    function readImageAsBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = String(reader.result);
+          resolve({name: file.name, mime_type: file.type || "image/jpeg", data: result.slice(result.indexOf(",") + 1)});
+        };
+        reader.onerror = () => reject(new Error(`Unable to read ${file.name}`));
+        reader.readAsDataURL(file);
+      });
+    }
+
+    document.getElementById("vp-images-input").onchange = event => {
+      const files = [...event.target.files];
+      document.getElementById("vp-images-summary").textContent = files.length
+        ? `${files.length} image(s): ${files.map(file => file.name).join(", ")}` : "";
+    };
+
+    document.getElementById("vp-llm-form").onsubmit = async event => {
+      event.preventDefault();
+      const status = document.getElementById("vp-llm-status");
+      const button = document.getElementById("vp-generate-button");
+      const files = [...document.getElementById("vp-images-input").files];
+      const textContext = document.getElementById("vp-context-input").value.trim();
+      const parts = Number(document.getElementById("vp-parts-input").value);
+      if (!files.length && !textContext) { status.textContent = "Provide text instructions or upload at least one reference image."; return; }
+      if (!Number.isInteger(parts) || parts < 1 || parts > 60) { status.textContent = "Number of parts must be between 1 and 60."; return; }
+
+      button.disabled = true;
+      status.textContent = "Generating video prompt. This can take a few minutes...";
+      try {
+        const images = await Promise.all(files.map(readImageAsBase64));
+        const response = await fetch("/api/generate-video-prompt", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            model_id: document.getElementById("vp-model-select").value,
+            parts,
+            text_context: textContext,
+            images
+          })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) { status.textContent = data.detail || "Prompt generation failed"; return; }
+        status.textContent = `Created ${data.length} scene prompt(s)`;
+        await loadVideoPrompts();
+      } catch (error) {
+        status.textContent = error.message || "Prompt generation failed";
+      } finally {
+        button.disabled = false;
+      }
+    };
+
+    document.getElementById("vp-manual-form").onsubmit = async event => {
+      event.preventDefault();
+      const status = document.getElementById("vp-manual-status");
+      const model = document.getElementById("vp-manual-model").value.trim();
+      const scene = Number(document.getElementById("vp-manual-scene").value);
+      const instructionsInput = document.getElementById("vp-manual-instructions");
+      const instructions = instructionsInput.value.trim();
+      if (!model || !instructions) { status.textContent = "Model name and instructions are required."; return; }
+      if (!Number.isInteger(scene) || scene < 1) { status.textContent = "Scene must be a whole number of 1 or more."; return; }
+      const response = await fetch("/api/video-prompts", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({model, scene_number: scene, instructions})
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) { status.textContent = data.detail || "Unable to save video prompt"; return; }
+      instructionsInput.value = "";
+      document.getElementById("vp-manual-scene").value = scene + 1;
+      status.textContent = `Created Scene ${data.scene_number}`;
+      await loadVideoPrompts();
+    };
+
+    function beginPromptEdit(item, row, options) {
+      const {url, withScene, reload} = options;
+      item.innerHTML = `<div class="prompt-edit">
+        <strong></strong>
+        <label>Model name</label><input class="pe-model">
+        ${withScene ? '<label>Scene</label><input class="pe-scene" type="number" min="1" max="999">' : ""}
+        <label>Instructions</label><textarea class="pe-instructions"></textarea>
+        <div class="prompt-edit-actions"><button type="button" class="primary pe-save">Save</button><button type="button" class="secondary pe-cancel">Cancel</button><span class="pe-status form-status"></span></div>
+      </div>`;
+      item.querySelector("strong").textContent = withScene ? `Edit scene ${row.scene_number || row.id}` : `Edit prompt ${row.id}`;
+      item.querySelector(".pe-model").value = row.model || "";
+      item.querySelector(".pe-instructions").value = row.instructions || "";
+      if (withScene) item.querySelector(".pe-scene").value = row.scene_number || 1;
+
+      item.querySelector(".pe-cancel").onclick = () => reload();
+      item.querySelector(".pe-save").onclick = async event => {
+        const status = item.querySelector(".pe-status");
+        const body = {
+          model: item.querySelector(".pe-model").value.trim(),
+          instructions: item.querySelector(".pe-instructions").value.trim()
+        };
+        if (withScene) body.scene_number = Number(item.querySelector(".pe-scene").value);
+        if (!body.model || !body.instructions) { status.textContent = "Model name and instructions are required."; return; }
+        if (withScene && (!Number.isInteger(body.scene_number) || body.scene_number < 1)) { status.textContent = "Scene must be a whole number of 1 or more."; return; }
+        event.target.disabled = true;
+        try {
+          const response = await fetch(url, {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) { status.textContent = data.detail || "Unable to save changes"; event.target.disabled = false; return; }
+          await reload();
+        } catch (error) {
+          status.textContent = "Unable to save changes";
+          event.target.disabled = false;
+        }
+      };
+    }
+
+    async function loadPromptVideoOptions() {
+      const select = document.getElementById("llm-video-select");
+      const previous = select.value;
+      select.innerHTML = "";
+      try {
+        const response = await fetch(`/api/projects/${currentProject.id}/outputs`);
+        const rows = await response.json();
+        rows.forEach(row => {
+          const option = document.createElement("option");
+          option.value = row.name;
+          option.textContent = row.name;
+          select.appendChild(option);
+        });
+        if (!rows.length) {
+          const option = document.createElement("option");
+          option.value = "";
+          option.textContent = "No output videos";
+          select.appendChild(option);
+        } else if (previous && rows.some(row => row.name === previous)) {
+          select.value = previous;
+        }
+      } catch (error) {
+        select.innerHTML = '<option value="">Unable to load videos</option>';
+      }
+    }
+
+    document.getElementById("llm-prompt-form").onsubmit = async event => {
+      event.preventDefault();
+      const status = document.getElementById("llm-prompt-status");
+      const button = document.getElementById("llm-generate-button");
+      const video = document.getElementById("llm-video-select").value;
+      if (!video) {
+        status.textContent = "Select an output video.";
+        return;
+      }
+      button.disabled = true;
+      status.textContent = "Uploading video and generating prompt. This can take a few minutes...";
+      try {
+        const response = await fetch(`/api/projects/${currentProject.id}/generate-audio-prompt`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            model_id: document.getElementById("llm-model-select").value,
+            video_name: video,
+            text_context: document.getElementById("llm-context-input").value
+          })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          status.textContent = data.detail || "Prompt generation failed";
+          return;
+        }
+        status.textContent = `Created Prompt ${data.id}`;
+        await loadPromptRecords();
+        await loadAudioPrompts();
+      } catch (error) {
+        status.textContent = "Prompt generation failed";
+      } finally {
+        button.disabled = false;
+      }
+    };
+
+    async function loadPromptRecords() {
+      loadPromptVideoOptions();
+      const response = await fetch("/api/audio-prompts");
+      const rows = await response.json();
+      const list = document.getElementById("prompt-manager-list");
+      list.innerHTML = "";
+
+      if (!rows.length) {
+        const empty = document.createElement("li");
+        empty.className = "muted";
+        empty.textContent = "No audio prompts.";
+        list.appendChild(empty);
+        return;
+      }
+
+      rows.forEach(row => {
+        const item = document.createElement("li");
+        item.className = "prompt-row";
+        item.innerHTML = `<div class="prompt-row-head"><strong></strong><span class="playlist-actions"><button type="button" class="secondary pr-edit">Edit</button><button type="button" class="danger pr-delete">Delete</button></span></div><div class="muted prompt-row-meta"></div><div class="prompt-row-text"></div>`;
+        item.querySelector("strong").textContent = `Prompt ${row.id}`;
+        item.querySelector(".prompt-row-meta").textContent = `${row.model} · ${row.created_on}` + (row.video_file ? ` · video: ${row.video_file}` : "") + (row.text_context ? ` · context: ${row.text_context}` : "");
+        item.querySelector(".prompt-row-text").textContent = row.instructions || "";
+        item.querySelector(".pr-delete").onclick = () => deletePromptRecord(row.id);
+        item.querySelector(".pr-edit").onclick = () => beginPromptEdit(item, row, {
+          url: `/api/audio-prompts/${encodeURIComponent(row.id)}`,
+          withScene: false,
+          reload: async () => { await loadPromptRecords(); await loadAudioPrompts(); }
+        });
+        list.appendChild(item);
+      });
+    }
+
+    document.getElementById("audio-prompt-form").onsubmit = async event => {
+      event.preventDefault();
+      const modelInput = document.getElementById("prompt-model-input");
+      const instructionsInput = document.getElementById("prompt-instructions-input");
+      const status = document.getElementById("prompt-form-status");
+      const submitButton = document.getElementById("create-prompt-button");
+
+      const model = modelInput.value.trim();
+      const instructions = instructionsInput.value.trim();
+      if (!model || !instructions) {
+        status.textContent = "Model name and instructions are required.";
+        return;
+      }
+
+      submitButton.disabled = true;
+      status.textContent = "Saving prompt...";
+      try {
+        const response = await fetch("/api/audio-prompts", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({model, instructions})
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          status.textContent = data.detail || "Unable to save audio prompt";
+          return;
+        }
+        instructionsInput.value = "";
+        status.textContent = `Created Prompt ${data.id}`;
+        await loadPromptRecords();
+        await loadAudioPrompts();
+      } catch (error) {
+        status.textContent = "Unable to save audio prompt";
+      } finally {
+        submitButton.disabled = false;
+      }
+    };
+
+    async function loadAudioPrompts() {
+      const response = await fetch("/api/audio-prompts");
+      const rows = await response.json();
+      const list = document.getElementById("audio-prompt-list");
+      list.innerHTML = "";
+      const player = document.getElementById("generated-audio");
+      player.pause();
+      player.removeAttribute("src");
+      player.hidden = true;
+      document.getElementById("generate-status").textContent = "";
+
+      if (!rows.length) {
+        const empty = document.createElement("li");
+        empty.className = "muted";
+        empty.style.padding = "12px";
+        empty.textContent = "No audio prompts.";
+        list.appendChild(empty);
+        document.getElementById("generate-now-playing").textContent = "Select a prompt";
+        document.getElementById("generate-meta").textContent = "";
+        document.getElementById("generate-detail").textContent = "Select one row, then generate music.";
+        return;
+      }
+
+      rows.forEach((row, index) => {
+        const item = document.createElement("li");
+        item.className = "flagged-list-item";
+
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = "audio-prompt";
+        radio.className = "audio-prompt-select";
+        radio.value = String(row.id);
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "flagged-entry";
+        button.innerHTML = `<span class="thumbnail"></span><span><strong class="name"></strong><span class="size"></span></span>`;
+        button.querySelector(".thumbnail").textContent = shortThumbnailName(row.model || "prompt");
+        button.querySelector(".name").textContent = `Prompt ${row.id}`;
+        button.querySelector(".size").textContent = `${row.model} · ${row.created_on}`;
+        button.onclick = () => selectAudioPrompt(row, button, radio);
+        radio.onchange = () => selectAudioPrompt(row, button, radio);
+
+        item.append(radio, button);
+        list.appendChild(item);
+        if (index === 0) button.click();
+      });
+    }
+
+    function selectAudioPrompt(row, button, radio) {
+      radio.checked = true;
+      document.querySelectorAll("#audio-prompt-list .flagged-entry").forEach(entry => entry.classList.remove("active"));
+      button.classList.add("active");
+      document.getElementById("generate-now-playing").textContent = `Prompt ${row.id}`;
+      document.getElementById("generate-meta").textContent = `${row.model} · created ${row.created_on}`;
+      document.getElementById("generate-detail").textContent = row.instructions || "";
+    }
+
+    document.getElementById("generate-music-button").onclick = async () => {
+      const selected = document.querySelector("input[name='audio-prompt']:checked");
+      const status = document.getElementById("generate-status");
+      if (!selected) {
+        status.textContent = "Select one prompt.";
+        return;
+      }
+      const button = document.getElementById("generate-music-button");
+      button.disabled = true;
+      status.textContent = "Generating music...";
+      try {
+        const response = await fetch(`/api/projects/${currentProject.id}/generate-music`, {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({id: Number(selected.value)})
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          status.textContent = data.detail || "Music generation failed";
+          return;
+        }
+        status.textContent = `Saved ${data.name}`;
+        const player = document.getElementById("generated-audio");
+        player.hidden = false;
+        player.src = data.stream_url;
+        player.load();
+      } catch (error) {
+        status.textContent = "Music generation failed";
+      } finally {
+        button.disabled = false;
+      }
+    };
+
+    function playVideo(video, item) {
+      document.querySelectorAll(".video-item").forEach(row => row.classList.remove("active"));
+      item.classList.add("active");
+      document.getElementById("now-playing").textContent = video.name;
+      const player = document.getElementById("video-player");
+      player.pause(); player.src = video.stream_url; player.load();
+    }
+
+    async function loadProjectVideos() {
+      const response = await fetch(`/api/projects/${currentProject.id}/videos`);
+      currentVideos = await response.json();
+      renderSequence();
+    }
+
+    function renderSequence() {
+      const list = document.getElementById("video-list");
+      list.innerHTML = "";
+      currentVideos.forEach((video,index) => {
+        const item = document.createElement("li");
+        item.className = "video-item";
+        item.draggable = true;
+        item.dataset.index = index;
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox"; checkbox.className = "video-select";
+
+        const button = document.createElement("button");
+        button.className = "video-button";
+        button.innerHTML = `<span class="thumbnail"></span><span><span class="name"></span><span class="size">${video.size_mb} MB</span></span>`;
+        button.querySelector(".thumbnail").textContent = shortThumbnailName(video.name);
+        button.querySelector(".name").textContent = video.name;
+        button.onclick = () => playVideo(video,item);
+
+        item.append(checkbox,button);
+        item.addEventListener("dragstart", () => item.classList.add("dragging"));
+        item.addEventListener("dragend", () => item.classList.remove("dragging"));
+        item.addEventListener("dragover", event => event.preventDefault());
+        item.addEventListener("drop", event => {
+          event.preventDefault();
+          const dragged = list.querySelector(".dragging");
+          if (dragged && dragged !== item) {
+            const draggedIndex = Number(dragged.dataset.index);
+            const targetIndex = Number(item.dataset.index);
+            const moved = currentVideos.splice(draggedIndex,1)[0];
+            currentVideos.splice(targetIndex,0,moved);
+            renderSequence();
+          }
+        });
+        list.appendChild(item);
+      });
+      if (currentVideos.length) {
+        const first = list.querySelector(".video-item");
+        playVideo(currentVideos[0],first);
+      }
+    }
+
+    function selectedNames() {
+      return [...document.querySelectorAll(".video-item")].filter(item => item.querySelector("input").checked).map(item => item.querySelector(".name").textContent);
+    }
+
+    document.getElementById("flag-button").onclick = async () => {
+      const names = selectedNames();
+      if (!names.length) return alert("Select at least one video to flag.");
+      const response = await fetch(`/api/projects/${currentProject.id}/flag`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({video_names:names})});
+      if (!response.ok) { const data=await response.json(); alert(data.detail); return; }
+      await loadFlagged();
+      switchTab("flagged-panel");
+    };
+
+    document.getElementById("combine-button").onclick = async () => {
+      const names = selectedNames();
+      if (!names.length) return alert("Select at least one video to combine.");
+      document.getElementById("status").textContent = "Combining videos...";
+      const response = await fetch(`/api/projects/${currentProject.id}/combine`, {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({video_names:names})});
+      const data = await response.json();
+      if (!response.ok) { document.getElementById("status").textContent = data.detail || "Combine failed"; return; }
+      document.getElementById("status").textContent = `Created ${data.name}`;
+      await loadOutputs();
+      switchTab("outputs-panel");
+    };
+
+    async function loadFlagged() {
+      const response = await fetch(`/api/projects/${currentProject.id}/flagged`);
+      const rows = await response.json();
+      const list = document.getElementById("flagged-list");
+      list.innerHTML = "";
+
+      if (!rows.length) {
+        const empty = document.createElement("li");
+        empty.className = "muted";
+        empty.style.padding = "12px";
+        empty.textContent = "No flagged videos.";
+        list.appendChild(empty);
+        document.getElementById("flagged-now-playing").textContent = "Select a flagged video";
+        const player = document.getElementById("flagged-player");
+        player.pause();
+        player.removeAttribute("src");
+        player.load();
+        return;
+      }
+
+      rows.forEach((row, index) => {
+        const item = document.createElement("li");
+        item.className = "flagged-list-item";
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "flagged-select";
+        checkbox.value = row.video_name;
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "flagged-entry";
+        button.innerHTML = `<span class="thumbnail"></span><span><strong class="name"></strong><span class="size">Flagged ${row.created_at}</span></span>`;
+        button.querySelector(".thumbnail").textContent = shortThumbnailName(row.video_name);
+        button.querySelector(".name").textContent = row.video_name;
+        button.onclick = () => playSecondaryVideo("flagged", row.video_name,
+          `/api/projects/${currentProject.id}/video/${encodeURIComponent(row.video_name)}`, button);
+
+        item.append(checkbox, button);
+        list.appendChild(item);
+        if (index === 0) button.click();
+      });
+    }
+
+    async function loadOutputs() {
+      const response = await fetch(`/api/projects/${currentProject.id}/outputs`);
+      const rows = await response.json();
+      const list = document.getElementById("output-list");
+      list.innerHTML = "";
+
+      if (!rows.length) {
+        const empty = document.createElement("li");
+        empty.className = "muted";
+        empty.style.padding = "12px";
+        empty.textContent = "No combined videos yet.";
+        list.appendChild(empty);
+        
+        const player = document.getElementById("output-player");
+        player.pause();
+        player.removeAttribute("src");
+        player.load();
+        return;
+      }
+
+      rows.forEach((row, index) => {
+        const item = document.createElement("li");
+        item.className = "flagged-list-item";
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "output-select";
+        checkbox.value = row.name;
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "media-list-item";
+        button.innerHTML = `<span class="thumbnail"></span><span><span class="size">Created ${row.created_at}</span></span>`;
+        button.querySelector(".thumbnail").textContent = shortThumbnailName(row.name);
+        button.onclick = () => playSecondaryVideo("output", row.name,
+          `/api/projects/${currentProject.id}/outputs/${encodeURIComponent(row.name)}`, button);
+
+        item.append(checkbox, button);
+        list.appendChild(item);
+        if (index === 0) button.click();
+      });
+    }
+
+    async function loadReplacementAssets() {
+      if (!currentProject) return;
+      const response = await fetch(`/api/projects/${currentProject.id}/replace-audio/assets`);
+      const data = await response.json();
+
+      const audioList = document.getElementById("replacement-audio-list");
+      const outputList = document.getElementById("replacement-output-list");
+      const replacedList = document.getElementById("replaced-video-list");
+      audioList.innerHTML = "";
+      outputList.innerHTML = "";
+      replacedList.innerHTML = "";
+
+      data.audios.forEach(audio => {
+        const li = document.createElement("li");
+        li.className = "replace-item";
+        const checkbox = document.createElement("input");
+        checkbox.type = "radio";
+        checkbox.name = "replacement-audio";
+        checkbox.value = audio.name;
+        const label = document.createElement("button");
+        label.type = "button";
+        label.className = "replace-entry";
+        label.innerHTML = `<span class="thumbnail"></span><span><strong class="name"></strong><span class="size">MP3 / AUDIO</span></span>`;
+        label.querySelector(".thumbnail").textContent = shortThumbnailName(audio.name);
+        label.querySelector(".name").textContent = audio.name;
+        label.onclick = () => {
+          checkbox.checked = true;
+          previewReplacementMedia("audio", audio.name,
+            `/api/projects/${currentProject.id}/source-audio/${encodeURIComponent(audio.name)}`, li);
+        };
+        li.append(checkbox, label);
+        audioList.appendChild(li);
+      });
+
+      data.outputs.forEach(video => {
+        const li = document.createElement("li");
+        li.className = "replace-item";
+        const checkbox = document.createElement("input");
+        checkbox.type = "radio";
+        checkbox.name = "replacement-output";
+        checkbox.value = video.name;
+        const label = document.createElement("button");
+        label.type = "button";
+        label.className = "replace-entry";
+        label.innerHTML = `<span class="thumbnail"></span><span><strong class="name"></strong><span class="size">MP4 OUTPUT</span></span>`;
+        label.querySelector(".thumbnail").textContent = shortThumbnailName(video.name);
+        label.querySelector(".name").textContent = video.name;
+        label.onclick = () => {
+          checkbox.checked = true;
+          previewReplacementMedia("video", video.name,
+            `/api/projects/${currentProject.id}/source-output/${encodeURIComponent(video.name)}`, li);
+        };
+        li.append(checkbox, label);
+        outputList.appendChild(li);
+      });
+
+      data.replaced.forEach((video, index) => {
+        const li = document.createElement("li");
+        li.className = "replace-item";
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.className = "replaced-select";
+        checkbox.value = video.name;
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "replace-entry";
+        button.innerHTML = `<span class="thumbnail"></span><span><strong class="name"></strong><span class="size">REPLACED VIDEO</span></span>`;
+        button.querySelector(".thumbnail").textContent = shortThumbnailName(video.name);
+        button.querySelector(".name").textContent = video.name;
+        button.onclick = () => playReplacedVideo(video, li);
+        li.append(checkbox, button);
+        replacedList.appendChild(li);
+        if (index === 0) button.click();
+      });
+
+      if (!data.audios.length) audioList.innerHTML = '<li class="muted">No audio files.</li>';
+      if (!data.outputs.length) outputList.innerHTML = '<li class="muted">No output MP4 files.</li>';
+      if (!data.replaced.length) replacedList.innerHTML = '<li class="muted">No replaced videos.</li>';
+    }
+
+    function playReplacedVideo(video, item) {
+      previewReplacementMedia("video", video.name,
+        `/api/projects/${currentProject.id}/replaced/${encodeURIComponent(video.name)}`, item);
+    }
+
+    async function loadFolderView(path) {
+      const status = document.getElementById("project-status");
+      status.textContent = "Loading folders...";
+      try {
+        const params = new URLSearchParams();
+        if (path) params.set("path", path);
+        const response = await fetch(`/api/browse?${params.toString()}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Unable to browse folder");
+
+        activeFolderPath = data.current;
+        folderDriveList.innerHTML = "";
+        folderDirectoryList.innerHTML = "";
+
+        data.drives.forEach(drive => {
+          const driveButton = document.createElement("button");
+          driveButton.type = "button";
+          driveButton.className = "secondary";
+          driveButton.textContent = drive.name;
+          driveButton.onclick = () => loadFolderView(drive.path);
+          folderDriveList.appendChild(driveButton);
+        });
+
+        const currentOption = document.createElement("button");
+        currentOption.type = "button";
+        currentOption.className = "folder-option";
+        currentOption.textContent = `📁 ${data.current}`;
+        folderDirectoryList.appendChild(currentOption);
+
+        data.directories.forEach(directory => {
+          const directoryButton = document.createElement("button");
+          directoryButton.type = "button";
+          directoryButton.className = "folder-option";
+          directoryButton.textContent = `📁 ${directory.name}`;
+          directoryButton.onclick = () => loadFolderView(directory.path);
+          folderDirectoryList.appendChild(directoryButton);
+        });
+
+        if (!data.directories.length) {
+          const empty = document.createElement("p");
+          empty.className = "muted";
+          empty.textContent = "No subfolders.";
+          folderDirectoryList.appendChild(empty);
+        }
+
+        status.textContent = "";
+        document.getElementById("folder-parent").disabled = !data.parent;
+        document.getElementById("folder-parent").dataset.path = data.parent;
+      } catch (error) {
+        status.textContent = error.message;
+      }
+    }
+
+    document.querySelectorAll(".browse-folder").forEach(button => {
+      button.addEventListener("click", () => openFolderBrowser(button));
+    });
+
+    document.getElementById("folder-close").onclick = () => {
+      folderModal.classList.remove("open");
+      document.getElementById("project-status").textContent = "";
+    };
+
+    document.getElementById("folder-parent").onclick = () => {
+      const parent = document.getElementById("folder-parent").dataset.path;
+      if (parent) loadFolderView(parent);
+    };
+
+    document.getElementById("folder-select").onclick = () => {
+      if (!activeFolderTarget || !activeFolderPath) return;
+      activeFolderTarget.value = activeFolderPath;
+      folderModal.classList.remove("open");
+      document.getElementById("project-status").textContent = "";
+    };
+
+
+    loadProjects();
+    document.getElementById("replace-audio-button").onclick = async () => {
+      const audio = document.querySelector('input[name="replacement-audio"]:checked');
+      const video = document.querySelector('input[name="replacement-output"]:checked');
+      const status = document.getElementById("replace-status");
+
+      if (!audio || !video) {
+        alert("Select one audio file and one output MP4.");
+        return;
+      }
+
+      status.textContent = "Replacing audio...";
+      const response = await fetch(`/api/projects/${currentProject.id}/replace-audio`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({audio_name: audio.value, video_name: video.value})
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        status.textContent = data.detail || "Audio replacement failed";
+        return;
+      }
+
+      status.textContent = `Created ${data.name}`;
+      await loadReplacementAssets();
+    };
+
+    document.getElementById("delete-replaced-button").onclick = async () => {
+      const names = [...document.querySelectorAll(".replaced-select:checked")].map(input => input.value);
+      if (!names.length) {
+        alert("Select at least one replaced video.");
+        return;
+      }
+      if (!confirm(`Permanently delete ${names.length} replaced video(s)?`)) return;
+
+      for (const name of names) {
+        await fetch(`/api/projects/${currentProject.id}/replaced/${encodeURIComponent(name)}`, {method: "DELETE"});
+      }
+
+      const player = document.getElementById("replaced-player");
+      player.pause();
+      player.removeAttribute("src");
+      player.load();
+      document.getElementById("replaced-now-playing").textContent = "Select a replaced video";
+      await loadReplacementAssets();
+    };
+
+    document.getElementById("remove-flags-button").onclick = async () => {
+      const names = [...document.querySelectorAll(".flagged-select:checked")].map(input => input.value);
+      if (!names.length) {
+        alert("Select at least one flagged video.");
+        return;
+      }
+
+      for (const name of names) {
+        const response = await fetch(`/api/projects/${currentProject.id}/flagged/${encodeURIComponent(name)}`, { method: "DELETE" });
+        if (!response.ok) {
+          const data = await response.json();
+          alert(data.detail || `Unable to remove ${name}`);
+          return;
+        }
+      }
+
+      const player = document.getElementById("flagged-player");
+      player.pause();
+      player.removeAttribute("src");
+      player.load();
+      document.getElementById("flagged-now-playing").textContent = "Select a flagged video";
+      await loadFlagged();
+    };
+
+    document.getElementById("delete-outputs-button").onclick = async () => {
+      const names = [...document.querySelectorAll(".output-select:checked")].map(input => input.value);
+      if (!names.length) {
+        alert("Select at least one output video.");
+        return;
+      }
+
+      if (!confirm(`Permanently delete ${names.length} selected output video(s)?`)) return;
+
+      for (const name of names) {
+        await fetch(`/api/projects/${currentProject.id}/outputs/${encodeURIComponent(name)}`, { method: "DELETE" }).catch(() => null);
+      }
+
+      const player = document.getElementById("output-player");
+      player.pause();
+      player.removeAttribute("src");
+      player.load();
+      
+      await loadOutputs();
+    };
+
+    function switchTab(panelId) {
+      document.querySelectorAll(".tab").forEach(tab => tab.classList.toggle("active", tab.dataset.tab === panelId));
+      document.querySelectorAll(".tab-panel").forEach(panel => panel.classList.toggle("active", panel.id === panelId));
+      if (panelId === "replace-audio-panel") loadReplacementAssets();
+      if (panelId === "generate-audio-panel" && currentProject) loadAudioPrompts();
+      if (panelId === "generate-audio-prompt-panel" && currentProject) loadPromptRecords();
+      if (panelId === "generate-video-prompt-panel") loadVideoPrompts();
+      if (panelId === "generate-video-panel" && currentProject) loadGenerateVideoScenes();
+    }
+
+    document.querySelectorAll(".tab").forEach(tab => {
+      tab.onclick = () => switchTab(tab.dataset.tab);
+    });
+
+    let activeFolderTarget = null;
+    let activeFolderPath = "";
+
+    function playSecondaryVideo(kind, name, url, button) {
+      const listId = kind === "flagged" ? "flagged-list" : "output-list";
+      const titleId = kind === "flagged" ? "flagged-now-playing" : "output-now-playing";
+      const playerId = kind === "flagged" ? "flagged-player" : "output-player";
+
+      document.getElementById(listId).querySelectorAll(".media-list-item, .flagged-entry").forEach(item => item.classList.remove("active"));
+      button.classList.add("active");
+      const titleEl = document.getElementById(titleId);
+      if (titleEl) titleEl.textContent = name;
+
+      const player = document.getElementById(playerId);
+      player.pause();
+      player.src = url;
+      player.load();
+    }
+
+    function previewReplacementMedia(kind, name, url, item) {
+      document.querySelectorAll("#replacement-audio-list .replace-item, #replacement-output-list .replace-item, #replaced-video-list .replace-item")
+        .forEach(row => row.classList.remove("active"));
+      item.classList.add("active");
+      document.getElementById("replaced-now-playing").textContent = name;
+
+      const oldPlayer = document.getElementById("replaced-player");
+      oldPlayer.pause();
+
+      if (kind === "audio") {
+        const audio = document.createElement("audio");
+        audio.id = "replaced-player";
+        audio.controls = true;
+        audio.preload = "metadata";
+        audio.src = url;
+        oldPlayer.replaceWith(audio);
+        audio.load();
+        return;
+      }
+
+      const videoPlayer = document.createElement("video");
+      videoPlayer.id = "replaced-player";
+      videoPlayer.controls = true;
+      videoPlayer.playsInline = true;
+      videoPlayer.preload = "metadata";
+      videoPlayer.src = url;
+      oldPlayer.replaceWith(videoPlayer);
+      videoPlayer.load();
+    }
+
+    function shortThumbnailName(filename) {
+      const stem = filename.replace(/\.[^.]+$/, "").replace(/[_-]+/g, " ").trim();
+      if (!stem) return "MEDIA";
+      if (stem.length <= 20) return stem;
+      return stem.slice(0,20) + "...";
+    }
+  </script>
+</body>
+</html>

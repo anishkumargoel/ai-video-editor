@@ -1,0 +1,167 @@
+# Video Editor
+
+A local web-based AI video and audio production studio built with **FastAPI**, **SQLite**, **FFmpeg**, **Google GenAI (Gemini, Veo, Lyria)**, and a standalone dark-mode HTML/CSS/JavaScript frontend.
+
+It supports an end-to-end local media workflow: generating structured multi-scene video prompts, rendering video clips with Google Veo, generating audio prompts and music/soundtracks with Gemini and Lyria, previewing and sequencing MP4 clips, flagging clips, combining clips into normalized MP4s, and replacing video audio tracks.
+
+---
+
+## 1. Directory Structure
+
+```text
+video editor/
+├── app.py               # FastAPI backend, SQLite persistence, range streaming, FFmpeg & GenAI orchestration
+├── static/
+│   └── index.html       # Single-page dark-mode frontend (HTML, CSS, vanilla JS)
+├── combine_videos.py    # Standalone normalized MP4 concatenation CLI helper
+├── replace_audio.py     # Standalone audio-replacement CLI helper
+├── requirements.txt     # Python package dependencies
+├── README.md            # Project documentation
+└── video_editor.db      # SQLite database (auto-created on first run of app.py)
+```
+
+---
+
+## 2. Requirements
+
+### Operating System & System Packages
+- **OS**: Windows 10 / Windows 11 (primary target; uses Windows drive/path browsing and WinGet FFmpeg discovery; also compatible with Linux/macOS if `ffmpeg` is on `PATH`).
+- **Python**: Python **3.10+** (tested on Python 3.10).
+- **FFmpeg**: Required for combining MP4 clips and replacing audio tracks.
+  - Install on Windows via WinGet:
+    ```powershell
+    winget install Gyan.FFmpeg
+    ```
+  - `app.py` automatically detects `ffmpeg` on `PATH` or in:
+    - `%LOCALAPPDATA%\Microsoft\WinGet\Packages\**\ffmpeg.exe`
+    - `C:\ffmpeg\bin\ffmpeg.exe`
+    - `C:\Program Files\ffmpeg\bin\ffmpeg.exe`
+- **Modern Web Browser**: Chrome, Edge, or Firefox with HTML5 `<video>` / `<audio>` and Clipboard API support.
+
+### Python Dependencies (`requirements.txt`)
+| Package | Version | Purpose |
+|---|---|---|
+| `fastapi` | `0.121.0` | REST API framework, static file serving, HTTP byte-range streaming |
+| `uvicorn` | `0.38.0` | ASGI server (imported and launched directly from `app.py`) |
+| `google-genai` | `1.52.0` | Google Gemini (prompt generation), Veo (video generation), and Lyria (music/audio generation) SDK |
+| `pydantic` | *(installed with FastAPI)* | Request validation and structured JSON schemas for Gemini outputs |
+
+All other backend modules (`sqlite3`, `pathlib`, `subprocess`, `base64`, `uuid`, `datetime`, `shutil`, `time`, `os`, `json`, `urllib.parse`) are part of the Python standard library. The frontend uses zero external npm/CDN dependencies.
+
+### API Key Configuration (`GEMINI_API_KEY`)
+AI generation features (**Generate video prompt**, **Generate video**, **Generate audio prompt**, **Generate audio**) require a valid Google Gemini API key:
+- **Option 1 (UI)**: Click the **`edit_key`** button in the top-right header bar to set or clear `GEMINI_API_KEY` at runtime. The key is stored only in server process memory (`os.environ`) and is never written to SQLite or returned in full.
+- **Option 2 (Environment variable)**: Set `GEMINI_API_KEY` in your shell before starting `app.py`:
+  ```powershell
+  $env:GEMINI_API_KEY = "your-api-key-here"
+  ```
+
+---
+
+## 3. Installation & Running the App
+
+1. **Create/activate a Python 3.10+ environment** (optional but recommended):
+   ```powershell
+   python -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   ```
+
+2. **Install Python dependencies**:
+   ```powershell
+   pip install -r requirements.txt
+   ```
+
+3. **Start the application**:
+   ```powershell
+   python app.py
+   ```
+   `app.py` starts Uvicorn on `http://127.0.0.1:8000` and automatically initializes `video_editor.db`.
+
+4. **Open in browser**:
+   - Web UI: `http://127.0.0.1:8000/`
+   - Interactive OpenAPI docs: `http://127.0.0.1:8000/docs`
+
+---
+
+## 4. Application Components
+
+### Project Landing Page
+- Create a project with a name and three local directories:
+  - **Input video folder** (must exist)
+  - **Input audio folder** (must exist)
+  - **Output video folder** (created automatically if missing)
+- Includes a non-blocking, server-backed in-page folder browser (`GET /api/browse`).
+- Lists existing projects from SQLite for one-click reopening.
+- Header controls: **`edit_key`** (manage `GEMINI_API_KEY` in memory) and **`New project`** (return to project selector).
+
+### Workspace Tabs
+
+1. **Generate video prompt** *(default tab)*
+   - **LLM-based generation**: Select a Gemini model (`gemini-2.5-pro` default, `gemini-3.8-pro`, `gemini-3.8-flash`, `gemini-2.5-flash`), optionally upload up to 10 reference images (15 MB max each), specify the number of parts/scenes (1–60), and enter text instructions.
+   - Generalized system prompt adapts to any visual style (photorealistic cinema, stop-motion, 3D, etc.), continuous stories or episodic scenes, dialogue with lip-sync or silent action, and defaults strictly to **8-second clips** (matching the Veo API max).
+   - Saves one self-contained record per scene in `video_prompts` formatted with `[Master Style & Characters]`, `[Cinematography]`, `[Subject]`, `[Action]` / `[Action & Lip-Sync]`, `[Context]`, `[Style & Ambiance]`, and `[Audio]`.
+   - **Manual form**: Add individual scene prompts (`model`, `scene_number`, `instructions`).
+   - **Saved video prompts**: Inline **Edit**, **Copy**, and **Delete** per scene.
+
+2. **Generate video**
+   - Lists all saved video prompt scenes.
+   - Configure **Veo model** (`veo-3.1-generate-preview` default, `veo-3.0-generate-001`), **Aspect ratio** (`16:9`, `9:16`), and **Duration** (`8s`, `6s`, `4s`).
+   - Per scene: optionally upload a reference image, **Edit** the prompt inline, click **Generate video**, and preview the rendered MP4.
+   - Saves generated MP4 files directly into the project's **Input videos** folder (`scene_<N>_<MMDDYYYYHHMM>.mp4`) and refreshes the Input videos tab.
+
+3. **Generate audio prompt**
+   - **LLM-based generation from video**: Select a Gemini model (`gemini-3.8-flash` default), choose an existing output MP4, provide text context, and generate a timestamped instrumental/foley prompt via the Gemini Files API.
+   - **Manual form**: Add custom audio prompts (`model`, `instructions`).
+   - **Saved prompts**: Inline **Edit** and **Delete** per record.
+
+4. **Generate audio**
+   - Select one saved audio prompt and click **Generate music** using Google GenAI (`lyria-3.5` by default).
+   - Saves the generated MP3 into the project's **Input audio** folder (`<prompt_id>_<MMDDYYYYHHMM>.mp3`) and previews it in an HTML5 `<audio>` player.
+
+5. **Input videos**
+   - Lists `.mp4` files from the project's input video folder (sorted naturally, e.g., `P2.mp4` before `P10.mp4`).
+   - Byte-range streaming preview (`HTTP 206` / `416`), checkbox selection, drag-and-drop reordering, **Flag**, and **Combine**.
+   - **Combine** normalizes all selected clips via FFmpeg (`1280x720`, centered padding, `24 fps`, `yuv420p`, `libx264` CRF 18, `48 kHz` stereo AAC 192 kbps, timestamp resets, `+faststart`) into a unique `combined_<uuid12>_<N>clips.mp4`.
+
+6. **Flagged videos**
+   - Preview flagged input clips and bulk-remove flags from SQLite.
+
+7. **Output videos**
+   - Synchronizes and lists `combined_*.mp4` files from the output folder, plays via range streaming, and supports idempotent bulk deletion from disk and SQLite.
+
+8. **Replace audio**
+   - 4-column layout: **MP3 / audio files**, **Output MP4 files**, **Replaced videos**, and a dynamic `<audio>`/`<video>` preview panel.
+   - Uses FFmpeg with `-stream_loop -1`, `-shortest`, `-c:v copy`, and `-c:a aac -b:a 192k` so shorter audio loops seamlessly and longer audio cuts cleanly at the video end. Produces `replaced_<uuid12>_<stem>.mp4`.
+
+---
+
+## 5. SQLite Data Model (`video_editor.db`)
+
+Automatically created and migrated by `init_db()` on startup:
+
+| Table | Purpose | Key Columns |
+|---|---|---|
+| `projects` | Project folder configurations | `id`, `name`, `input_video_folder`, `input_audio_folder`, `output_video_folder`, `created_at` |
+| `flagged_videos` | Flagged input MP4 filenames per project | `id`, `project_id`, `video_name`, `created_at` |
+| `combined_videos` | Combined MP4 metadata & clip order | `id`, `project_id`, `name`, `file_path`, `sequence_json`, `created_at` |
+| `replaced_videos` | Replaced-audio MP4 outputs | `id`, `project_id`, `name`, `file_path`, `source_video_name`, `source_audio_name`, `created_at` |
+| `audio_prompts` | Audio/music prompts (seeded with 1 default `lyria-3.5` prompt if empty) | `id`, `created_on`, `model`, `instructions`, `video_file`, `text_context` |
+| `video_prompts` | Per-scene video prompts grouped by series | `id`, `created_on`, `model`, `instructions`, `image_files`, `text_context`, `parts`, `scene_number`, `series_id` |
+
+---
+
+## 6. REST API Summary
+
+- **UI & Key**: `GET /`, `GET /api/browse`, `GET /api/gemini-key`, `POST /api/gemini-key`, `DELETE /api/gemini-key`
+- **Projects**: `GET /api/projects`, `POST /api/projects`
+- **Video Prompts & Generation**: `GET /api/video-prompts`, `POST /api/video-prompts`, `PUT /api/video-prompts/{id}`, `DELETE /api/video-prompts/{id}`, `POST /api/generate-video-prompt`, `POST /api/projects/{id}/generate-video`
+- **Audio Prompts & Generation**: `GET /api/audio-prompts`, `POST /api/audio-prompts`, `PUT /api/audio-prompts/{id}`, `DELETE /api/audio-prompts/{id}`, `POST /api/projects/{id}/generate-audio-prompt`, `POST /api/projects/{id}/generate-music`
+- **Input / Flagged / Output Videos**: `GET /api/projects/{id}/videos`, `GET /api/projects/{id}/video/{filename}`, `POST /api/projects/{id}/flag`, `GET /api/projects/{id}/flagged`, `DELETE /api/projects/{id}/flagged/{filename}`, `POST /api/projects/{id}/combine`, `GET /api/projects/{id}/outputs`, `GET /api/projects/{id}/outputs/{filename}`, `DELETE /api/projects/{id}/outputs/{filename}`
+- **Replace Audio**: `GET /api/projects/{id}/replace-audio/assets`, `POST /api/projects/{id}/replace-audio`, `GET /api/projects/{id}/replaced/{filename}`, `DELETE /api/projects/{id}/replaced/{filename}`, `GET /api/projects/{id}/source-audio/{filename}`, `GET /api/projects/{id}/source-output/{filename}`
+
+---
+
+## 7. Standalone CLI Scripts
+
+- **`combine_videos.py`**: Standalone script to normalize and concatenate MP4 clips with FFmpeg.
+- **`replace_audio.py`**: Standalone script to replace an MP4's audio track with a looping/trimmed MP3.
