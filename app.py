@@ -396,7 +396,7 @@ async def combine_videos(project_id: int, request: Request):
     command.extend([
         "-filter_complex", ";".join(filters),
         "-map", "[outv]", "-map", "[outa]",
-        "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "18",
         "-pix_fmt", "yuv420p", "-r", "24", "-c:a", "aac", "-b:a", "192k",
         "-movflags", "+faststart", str(output_file),
     ])
@@ -1616,7 +1616,9 @@ def crop_types(kind: str) -> dict:
         return CROP_VIDEO_TYPES
     if kind == "audio":
         return CROP_AUDIO_TYPES
-    raise HTTPException(status_code=400, detail="Kind must be 'video' or 'audio'")
+    if kind == "image":
+        return CROP_IMAGE_TYPES
+    raise HTTPException(status_code=400, detail="Kind must be 'video', 'audio', or 'image'")
 
 
 def resolve_media_file(path: str, kind: str) -> Path:
@@ -1737,7 +1739,7 @@ class CropMediaRequest(BaseModel):
 
 
 @app.post("/api/media/crop")
-def crop_media(payload: CropMediaRequest):
+def crop_media(payload: CropMediaRequest, request: Request = None, queued: bool = False):
     file = resolve_media_file(payload.path, payload.kind)
     ffmpeg = find_ffmpeg()
     if not ffmpeg:
@@ -1804,7 +1806,7 @@ def crop_media(payload: CropMediaRequest):
 
     command = [ffmpeg, "-hide_banner", "-y", "-i", str(file), "-filter_complex", ";".join(filters)]
     if use_video:
-        command += ["-map", "[outv]", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p"]
+        command += ["-map", "[outv]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p"]
     if use_audio:
         command += ["-map", "[outa]"]
         audio_codecs = {
@@ -1818,27 +1820,50 @@ def crop_media(payload: CropMediaRequest):
         command += ["-movflags", "+faststart"]
     command.append(str(output_path))
 
-    try:
-        subprocess.run(command, check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as error:
-        if output_path.exists():
-            output_path.unlink()
-        raise HTTPException(status_code=500, detail=f"FFmpeg failed: {error.stderr[-800:]}")
-
     kept_seconds = sum(end - start for start, end in keep)
-    return {
-        "name": output_path.name,
-        "path": str(output_path),
-        "folder": str(output_path.parent),
-        "original_duration": round(duration, 3),
-        "new_duration": round(kept_seconds, 3),
-    }
+
+    def _run(on_progress=None):
+        try:
+            run_ffmpeg_with_progress(command, kept_seconds, on_progress)
+        except subprocess.CalledProcessError as error:
+            if output_path.exists():
+                output_path.unlink()
+            raise HTTPException(status_code=500, detail=f"FFmpeg failed: {error.stderr[-800:]}")
+        return {
+            "name": output_path.name,
+            "path": str(output_path),
+            "folder": str(output_path.parent),
+            "original_duration": round(duration, 3),
+            "new_duration": round(kept_seconds, 3),
+        }
+
+    if queued:
+        session = _require_user_session(request)
+        tool_label = "Crop Video" if payload.kind == "video" else "Crop Audio"
+        return JSONResponse(enqueue_media_job(session["user_id"], tool_label, file.name, _run), status_code=202)
+    return _run()
 
 
 # ---------------------------------------------------------------------------
 # Video effects (timed segments, presets, color grading, textures & projects)
 # ---------------------------------------------------------------------------
 VIDEO_EFFECT_PRESETS = {"none", "grayscale", "sepia", "retro", "film"}
+VIDEO_TRANSITION_TYPES = {
+    "fade_black",
+    "fade_white",
+    "fade_in",
+    "fade_out",
+    "blur_dissolve",
+    "wipe_left",
+    "wipe_right",
+    "zoom_flash",
+}
+
+
+class EffectTransition(BaseModel):
+    start: float
+    end: float
+    type: str = "fade_black"
 
 
 class EffectSettings(BaseModel):
@@ -1853,6 +1878,7 @@ class EffectSettings(BaseModel):
     vhs: float = 0.0            # 0.0 to 1.0
     glitch: float = 0.0         # 0.0 to 1.0
     lens_flares: float = 0.0    # 0.0 to 1.0
+    speed: float = 1.0          # 0.25 to 4.0 (1.0 = normal speed)
 
 
 class EffectSegment(EffectSettings):
@@ -1863,19 +1889,21 @@ class EffectSegment(EffectSettings):
 class VideoEffectsRequest(EffectSettings):
     path: str
     segments: list[EffectSegment] = Field(default_factory=list)
+    transitions: list[EffectTransition] = Field(default_factory=list)
 
 
 class EffectsProjectPayload(BaseModel):
     name: str
     video_path: str = ""
     segments: list[EffectSegment] = Field(default_factory=list)
+    transitions: list[EffectTransition] = Field(default_factory=list)
 
 
 def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, float(value)))
 
 
-def _has_any_effect(settings: EffectSettings) -> bool:
+def _has_visual_effect(settings: EffectSettings) -> bool:
     preset = (settings.preset or "none").strip().lower()
     return (
         preset != "none"
@@ -1897,13 +1925,33 @@ def _has_any_effect(settings: EffectSettings) -> bool:
     )
 
 
+def _has_any_effect(settings: EffectSettings) -> bool:
+    return _has_visual_effect(settings) or abs(_clamp(settings.speed, 0.25, 4.0) - 1.0) > 0.005
+
+
+def _atempo_filters(speed: float) -> list[str]:
+    """Decompose any speed in [0.25, 4.0] into chained FFmpeg atempo filters (each in [0.5, 2.0])."""
+    s = _clamp(speed, 0.25, 4.0)
+    if abs(s - 1.0) <= 0.005:
+        return []
+    filters = []
+    while s < 0.5:
+        filters.append("atempo=0.5")
+        s /= 0.5
+    while s > 2.0:
+        filters.append("atempo=2.0")
+        s /= 2.0
+    filters.append(f"atempo={s:.4f}")
+    return filters
+
+
 def build_segment_effect_graphs(in_label: str, out_label: str, settings: EffectSettings, tag: str) -> list[str]:
     """Build FFmpeg filter_complex statements transforming [in_label] -> [out_label]."""
     preset = (settings.preset or "none").strip().lower()
     if preset not in VIDEO_EFFECT_PRESETS:
         raise HTTPException(status_code=400, detail=f"Unsupported preset '{preset}'")
 
-    if not _has_any_effect(settings):
+    if not _has_visual_effect(settings):
         return [f"[{in_label}]format=yuv420p[{out_label}]"]
 
     contrast = _clamp(settings.contrast, 0.5, 2.0)
@@ -2022,13 +2070,139 @@ def build_segment_effect_graphs(in_label: str, out_label: str, settings: EffectS
     return graphs
 
 
-def build_video_effects_filtergraph(payload: VideoEffectsRequest, duration: float = 0.0) -> tuple[str, str]:
-    """Build FFmpeg filter_complex for either full-video effects or timed effect segments."""
+def build_transitions_graphs(in_label: str, out_label: str, transitions: list[EffectTransition], duration: float) -> list[str]:
+    """Build in-place FFmpeg filter_complex statements for timed transitions without altering clip duration."""
+    if not transitions:
+        return []
+    resolved = []
+    for tr in transitions:
+        t_type = (tr.type or "fade_black").strip().lower()
+        if t_type not in VIDEO_TRANSITION_TYPES:
+            raise HTTPException(status_code=400, detail=f"Unsupported transition type '{t_type}'")
+        if not math.isfinite(tr.start) or not math.isfinite(tr.end):
+            raise HTTPException(status_code=400, detail="Transition times must be valid numbers")
+        start = max(0.0, float(tr.start))
+        end = min(duration, float(tr.end)) if duration > 0 else float(tr.end)
+        if duration > 0 and start >= duration:
+            continue
+        if end - start < 0.05:
+            raise HTTPException(status_code=400, detail="Each transition must be at least 0.05 seconds long")
+        resolved.append((start, end, t_type))
+
+    if not resolved:
+        return []
+
+    resolved.sort(key=lambda item: item[0])
+    for i in range(1, len(resolved)):
+        if resolved[i][0] < resolved[i - 1][1] - 0.01:
+            raise HTTPException(status_code=400, detail="Transitions cannot overlap")
+
+    graphs: list[str] = []
+    linear: list[str] = []
+    current = in_label
+
+    def flush_linear(tag: str):
+        nonlocal current
+        if linear:
+            nxt = f"tr_{tag}"
+            graphs.append(f"[{current}]{','.join(linear)}[{nxt}]")
+            current = nxt
+            linear.clear()
+
+    for idx, (start, end, t_type) in enumerate(resolved):
+        d = end - start
+        half = d / 2.0
+        mid = start + half
+        q = d / 4.0
+        if t_type == "fade_black":
+            linear.append(f"fade=t=out:st={start:.3f}:d={half:.3f}:color=black")
+            linear.append(f"fade=t=in:st={mid:.3f}:d={half:.3f}:color=black")
+        elif t_type == "fade_white":
+            linear.append(f"fade=t=out:st={start:.3f}:d={half:.3f}:color=white")
+            linear.append(f"fade=t=in:st={mid:.3f}:d={half:.3f}:color=white")
+        elif t_type == "fade_in":
+            linear.append(f"fade=t=in:st={start:.3f}:d={d:.3f}:color=black")
+        elif t_type == "fade_out":
+            linear.append(f"fade=t=out:st={start:.3f}:d={d:.3f}:color=black")
+        elif t_type == "blur_dissolve":
+            linear.append(f"gblur=sigma=5:enable='between(t,{start:.3f},{start+q:.3f})+between(t,{end-q:.3f},{end:.3f})'")
+            linear.append(f"gblur=sigma=16:enable='between(t,{start+q:.3f},{end-q:.3f})'")
+        elif t_type == "zoom_flash":
+            linear.append(f"rgbashift=rh=12:bh=-12:edge=smear:enable='between(t,{start:.3f},{end:.3f})'")
+            linear.append(f"eq=brightness=0.45:contrast=1.25:enable='between(t,{mid-q:.3f},{mid+q:.3f})'")
+        elif t_type in ("wipe_left", "wipe_right"):
+            flush_linear(f"pre{idx}")
+            x_expr = (
+                f"if(lt(t,{mid:.3f}),W*(1-(t-{start:.3f})/{half:.3f}),-W*((t-{mid:.3f})/{half:.3f}))"
+                if t_type == "wipe_left"
+                else f"if(lt(t,{mid:.3f}),-W*(1-(t-{start:.3f})/{half:.3f}),W*((t-{mid:.3f})/{half:.3f}))"
+            )
+            graphs.append(f"color=c=black:s=16x16:r=24[tr_blk{idx}]")
+            graphs.append(f"[tr_blk{idx}][{current}]scale2ref[tr_curt{idx}][tr_base{idx}]")
+            graphs.append(
+                f"[tr_base{idx}][tr_curt{idx}]overlay=x='{x_expr}':y=0:shortest=1:enable='between(t,{start:.3f},{end:.3f})'[tr_w{idx}]"
+            )
+            current = f"tr_w{idx}"
+
+    if linear:
+        graphs.append(f"[{current}]{','.join(linear)},format=yuv420p[{out_label}]")
+    else:
+        graphs.append(f"[{current}]format=yuv420p[{out_label}]")
+    return graphs
+
+
+def _map_source_time_to_output(t: float, pieces: list[tuple[float, float, float]]) -> float:
+    """Map a source timestamp to output timestamp given contiguous (start, end, speed) pieces."""
+    out_t = 0.0
+    for start, end, speed in pieces:
+        if t <= start:
+            return out_t
+        if t <= end:
+            return out_t + (t - start) / speed
+        out_t += (end - start) / speed
+    return out_t
+
+
+def build_video_effects_filtergraph(
+    payload: VideoEffectsRequest, duration: float = 0.0, has_audio: bool = False
+) -> tuple[str, str, str | None]:
+    """Build FFmpeg filter_complex for full-video effects, timed segments, speed control, and transitions.
+    Returns (filter_complex, video_out_label, audio_out_label_or_None).
+    """
     if not payload.segments:
-        if not _has_any_effect(payload):
-            raise HTTPException(status_code=400, detail="Select at least one preset, adjustment, or effect")
-        graphs = build_segment_effect_graphs("0:v:0", "vout", payload, "full")
-        return ";".join(graphs), "[vout]"
+        speed = _clamp(payload.speed, 0.25, 4.0)
+        speed_changed = abs(speed - 1.0) > 0.005
+        out_duration = (duration / speed) if (duration > 0 and speed_changed) else duration
+        mapped_trs = [
+            EffectTransition(
+                start=tr.start / speed if speed_changed else tr.start,
+                end=tr.end / speed if speed_changed else tr.end,
+                type=tr.type,
+            )
+            for tr in payload.transitions
+        ]
+        tr_graphs = build_transitions_graphs("vpre", "vout", mapped_trs, out_duration)
+        has_full = _has_any_effect(payload)
+        if not has_full and not tr_graphs:
+            raise HTTPException(status_code=400, detail="Select at least one preset, adjustment, effect, speed, or transition")
+        base_label = "vpre" if tr_graphs else "vout"
+        graphs = []
+        v_in = "0:v:0"
+        if speed_changed:
+            graphs.append(f"[0:v:0]setpts=(PTS-STARTPTS)/{speed:.4f}[vspd]")
+            v_in = "vspd"
+        if _has_visual_effect(payload):
+            graphs.extend(build_segment_effect_graphs(v_in, base_label, payload, "full"))
+        else:
+            graphs.append(f"[{v_in}]format=yuv420p[{base_label}]")
+        graphs.extend(tr_graphs)
+
+        audio_out = None
+        if speed_changed and has_audio:
+            atempo = ",".join(_atempo_filters(speed))
+            graphs.append(f"[0:a:0]{atempo},asetpts=PTS-STARTPTS[aout]")
+            audio_out = "[aout]"
+        return ";".join(graphs), "[vout]", audio_out
 
     if duration <= 0:
         raise HTTPException(status_code=400, detail="Could not read the video duration")
@@ -2045,15 +2219,12 @@ def build_video_effects_filtergraph(payload: VideoEffectsRequest, duration: floa
             raise HTTPException(status_code=400, detail="Each segment's end time must be after its start time")
         resolved.append((start, end, seg))
 
-    if not resolved or not any(_has_any_effect(seg) for _, _, seg in resolved):
-        raise HTTPException(status_code=400, detail="Add at least one effect segment within the video duration")
-
     resolved.sort(key=lambda item: item[0])
     for i in range(1, len(resolved)):
         if resolved[i][0] < resolved[i - 1][1] - 0.01:
             raise HTTPException(status_code=400, detail="Effect segments cannot overlap")
 
-    # Build contiguous pieces covering [0, duration]; uncovered gaps stay original
+    # Build contiguous pieces covering [0, duration]; uncovered gaps stay original (1.0x, no effects)
     pieces: list[tuple[float, float, EffectSettings | None]] = []
     cursor = 0.0
     for start, end, seg in resolved:
@@ -2064,26 +2235,65 @@ def build_video_effects_filtergraph(payload: VideoEffectsRequest, duration: floa
     if duration - cursor >= 0.02:
         pieces.append((cursor, duration, None))
 
+    timing_pieces = [
+        (start, end, _clamp(seg.speed, 0.25, 4.0) if seg is not None else 1.0)
+        for start, end, seg in pieces
+    ]
+    any_speed_change = any(abs(spd - 1.0) > 0.005 for _, _, spd in timing_pieces)
+    out_duration = sum((end - start) / spd for start, end, spd in timing_pieces)
+
+    mapped_trs = [
+        EffectTransition(
+            start=_map_source_time_to_output(tr.start, timing_pieces),
+            end=_map_source_time_to_output(tr.end, timing_pieces),
+            type=tr.type,
+        )
+        for tr in payload.transitions
+    ]
+    tr_graphs = build_transitions_graphs("vpre", "vout", mapped_trs, out_duration)
+
+    if not any(_has_any_effect(seg) for _, _, seg in resolved) and not tr_graphs:
+        raise HTTPException(status_code=400, detail="Add at least one effect segment, speed change, or transition")
+
     graphs = []
-    concat_labels = []
+    concat_inputs = []
+    process_audio = any_speed_change and has_audio
+
     for idx, (start, end, seg) in enumerate(pieces):
-        if seg is None or not _has_any_effect(seg):
-            graphs.append(f"[0:v:0]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS,format=yuv420p[seg{idx}]")
+        spd = _clamp(seg.speed, 0.25, 4.0) if seg is not None else 1.0
+        pts_expr = f"(PTS-STARTPTS)/{spd:.4f}" if abs(spd - 1.0) > 0.005 else "PTS-STARTPTS"
+        if seg is None or not _has_visual_effect(seg):
+            graphs.append(f"[0:v:0]trim=start={start:.3f}:end={end:.3f},setpts={pts_expr},format=yuv420p[seg{idx}]")
         else:
-            graphs.append(f"[0:v:0]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS[raw{idx}]")
+            graphs.append(f"[0:v:0]trim=start={start:.3f}:end={end:.3f},setpts={pts_expr}[raw{idx}]")
             graphs.extend(build_segment_effect_graphs(f"raw{idx}", f"seg{idx}", seg, f"s{idx}"))
-        concat_labels.append(f"[seg{idx}]")
+        concat_inputs.append(f"[seg{idx}]")
 
-    if len(concat_labels) == 1:
-        graphs.append(f"{concat_labels[0]}format=yuv420p[vout]")
+        if process_audio:
+            atempo_parts = _atempo_filters(spd)
+            a_chain = [f"atrim=start={start:.3f}:end={end:.3f}", "asetpts=PTS-STARTPTS"]
+            a_chain.extend(atempo_parts)
+            a_chain.append("aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo")
+            graphs.append(f"[0:a:0]{','.join(a_chain)}[aseg{idx}]")
+            concat_inputs.append(f"[aseg{idx}]")
+
+    base_label = "vpre" if tr_graphs else "vout"
+    audio_out = "[aout]" if process_audio else None
+    if len(pieces) == 1:
+        graphs.append(f"[seg0]format=yuv420p[{base_label}]")
+        if process_audio:
+            graphs.append("[aseg0]anull[aout]")
     else:
-        graphs.append(f"{''.join(concat_labels)}concat=n={len(concat_labels)}:v=1:a=0,format=yuv420p[vout]")
+        a_flag = 1 if process_audio else 0
+        a_out_lbl = "[aout]" if process_audio else ""
+        graphs.append(f"{''.join(concat_inputs)}concat=n={len(pieces)}:v=1:a={a_flag}[{base_label}]{a_out_lbl}")
 
-    return ";".join(graphs), "[vout]"
+    graphs.extend(tr_graphs)
+    return ";".join(graphs), "[vout]", audio_out
 
 
 @app.post("/api/media/effects")
-def apply_video_effects(payload: VideoEffectsRequest):
+def apply_video_effects(payload: VideoEffectsRequest, request: Request = None, queued: bool = False):
     file = resolve_media_file(payload.path, "video")
     ffmpeg = find_ffmpeg()
     if not ffmpeg:
@@ -2094,7 +2304,9 @@ def apply_video_effects(payload: VideoEffectsRequest):
         raise HTTPException(status_code=400, detail="The selected file has no video stream")
 
     duration = info.get("duration") or 0.0
-    filter_complex, out_label = build_video_effects_filtergraph(payload, duration=duration)
+    filter_complex, out_label, audio_label = build_video_effects_filtergraph(
+        payload, duration=duration, has_audio=bool(info["has_audio"])
+    )
 
     output_path = file.with_name(f"{file.stem}_fx_{uuid.uuid4().hex[:8]}.mp4")
     while output_path.exists():
@@ -2111,27 +2323,36 @@ def apply_video_effects(payload: VideoEffectsRequest):
         "-i", str(file),
         "-filter_complex", filter_complex,
         "-map", out_label,
-        "-map", "0:a?",
-        "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+    ]
+    if audio_label:
+        command += ["-map", audio_label, "-c:a", "aac", "-b:a", "192k"]
+    else:
+        command += ["-map", "0:a?", "-c:a", "copy"]
+    command += [
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
         "-maxrate", f"{maxrate_kbps}k", "-bufsize", f"{maxrate_kbps * 2}k",
         "-pix_fmt", "yuv420p",
-        "-c:a", "copy",
         "-movflags", "+faststart",
         str(output_path),
     ]
 
-    try:
-        subprocess.run(command, check=True, capture_output=True, text=True)
-    except subprocess.CalledProcessError as error:
-        if output_path.exists():
-            output_path.unlink()
-        raise HTTPException(status_code=500, detail=f"FFmpeg failed: {error.stderr[-800:]}")
+    def _run(on_progress=None):
+        try:
+            run_ffmpeg_with_progress(command, duration, on_progress)
+        except subprocess.CalledProcessError as error:
+            if output_path.exists():
+                output_path.unlink()
+            raise HTTPException(status_code=500, detail=f"FFmpeg failed: {error.stderr[-800:]}")
+        return {
+            "name": output_path.name,
+            "path": str(output_path),
+            "folder": str(output_path.parent),
+        }
 
-    return {
-        "name": output_path.name,
-        "path": str(output_path),
-        "folder": str(output_path.parent),
-    }
+    if queued:
+        session = _require_user_session(request)
+        return JSONResponse(enqueue_media_job(session["user_id"], "Video Effects", file.name, _run), status_code=202)
+    return _run()
 
 
 def _row_to_effects_project(row) -> dict:
@@ -2140,11 +2361,16 @@ def _row_to_effects_project(row) -> dict:
         segments = json.loads(row["segments_json"])
     except Exception:
         segments = []
+    try:
+        transitions = json.loads(row["transitions_json"]) if "transitions_json" in row.keys() else []
+    except Exception:
+        transitions = []
     return {
         "id": row["id"],
         "name": row["name"],
         "video_path": row["video_path"],
         "segments": segments,
+        "transitions": transitions,
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
@@ -2169,11 +2395,12 @@ def create_effects_project(payload: EffectsProjectPayload, request: Request):
     if not name:
         raise HTTPException(status_code=400, detail="Effects project name is required")
     segments_json = json.dumps([seg.model_dump() for seg in payload.segments])
+    transitions_json = json.dumps([tr.model_dump() for tr in payload.transitions])
     with db() as connection:
         cursor = connection.execute(
-            """INSERT INTO effects_projects (user_id, name, video_path, segments_json)
-               VALUES (?, ?, ?, ?)""",
-            (session["user_id"], name, payload.video_path.strip(), segments_json),
+            """INSERT INTO effects_projects (user_id, name, video_path, segments_json, transitions_json)
+               VALUES (?, ?, ?, ?, ?)""",
+            (session["user_id"], name, payload.video_path.strip(), segments_json, transitions_json),
         )
         row = connection.execute(
             "SELECT * FROM effects_projects WHERE id = ?", (cursor.lastrowid,)
@@ -2189,12 +2416,13 @@ def update_effects_project(project_id: int, payload: EffectsProjectPayload, requ
     if not name:
         raise HTTPException(status_code=400, detail="Effects project name is required")
     segments_json = json.dumps([seg.model_dump() for seg in payload.segments])
+    transitions_json = json.dumps([tr.model_dump() for tr in payload.transitions])
     with db() as connection:
         cursor = connection.execute(
             """UPDATE effects_projects
-               SET name = ?, video_path = ?, segments_json = ?, updated_at = CURRENT_TIMESTAMP
+               SET name = ?, video_path = ?, segments_json = ?, transitions_json = ?, updated_at = CURRENT_TIMESTAMP
                WHERE id = ? AND user_id = ?""",
-            (name, payload.video_path.strip(), segments_json, project_id, session["user_id"]),
+            (name, payload.video_path.strip(), segments_json, transitions_json, project_id, session["user_id"]),
         )
         if cursor.rowcount == 0:
             raise HTTPException(status_code=404, detail="Effects project not found")
@@ -2213,6 +2441,1062 @@ def delete_effects_project(project_id: int, request: Request):
             (project_id, session["user_id"]),
         )
     return {"success": True, "id": project_id, "deleted": cursor.rowcount > 0}
+
+
+# ---------------------------------------------------------------------------
+# Segmented Bokeh Effect (local CPU CSRT tracking + ONNX U2-Net / GrabCut)
+# ---------------------------------------------------------------------------
+import tempfile as _tempfile
+
+MODELS_DIR = PROJECT_DIR / "models"
+U2NETP_PATH = MODELS_DIR / "u2netp.onnx"
+U2NETP_URL = "https://github.com/danielgatis/rembg/releases/download/v0.0.0/u2netp.onnx"
+BOKEH_PREVIEW_DIR = PROJECT_DIR / "bokeh_previews"
+_u2net_session = None
+
+
+class BokehBox(BaseModel):
+    x: float          # normalized 0..1 left
+    y: float          # normalized 0..1 top
+    w: float          # normalized 0..1 width
+    h: float          # normalized 0..1 height
+    time: float = 0.0 # anchor timestamp in seconds (relative to full video)
+
+
+class BokehSegment(BaseModel):
+    start: float
+    end: float
+    boxes: list[BokehBox]
+    blur_strength: int = 25          # 5..65
+    edge_feather: int = 12           # 0..40
+    segmentation_mode: str = "auto"  # auto | grabcut | feathered
+    segment_every: int = 2           # 1..5
+    preview_path: str = ""           # optional already-rendered preview clip to reuse
+
+
+class BokehSegmentPreviewRequest(BokehSegment):
+    path: str
+
+
+class BokehRequest(BaseModel):
+    path: str
+    segments: list[BokehSegment] = Field(default_factory=list)
+    boxes: list[BokehBox] = Field(default_factory=list)
+    blur_strength: int = 25
+    edge_feather: int = 12
+    segmentation_mode: str = "auto"
+    segment_every: int = 2
+
+
+class BokehProjectPayload(BaseModel):
+    name: str
+    video_path: str = ""
+    segments: list[BokehSegment] = Field(default_factory=list)
+
+
+def _create_csrt_tracker(cv2):
+    if hasattr(cv2, "TrackerCSRT_create"):
+        return cv2.TrackerCSRT_create()
+    if hasattr(cv2, "legacy") and hasattr(cv2.legacy, "TrackerCSRT_create"):
+        return cv2.legacy.TrackerCSRT_create()
+    raise RuntimeError("OpenCV CSRT tracker is not available; install opencv-contrib-python-headless")
+
+
+def _get_u2net_session():
+    global _u2net_session
+    if _u2net_session is not None:
+        return _u2net_session
+    try:
+        import onnxruntime as ort
+    except ImportError:
+        return None
+    if not U2NETP_PATH.is_file() or U2NETP_PATH.stat().st_size < 1_000_000:
+        try:
+            import urllib.request
+            MODELS_DIR.mkdir(parents=True, exist_ok=True)
+            tmp_model = U2NETP_PATH.with_suffix(".onnx.tmp")
+            urllib.request.urlretrieve(U2NETP_URL, str(tmp_model))
+            if tmp_model.stat().st_size > 1_000_000:
+                tmp_model.replace(U2NETP_PATH)
+            else:
+                tmp_model.unlink(missing_ok=True)
+                return None
+        except Exception:
+            return None
+    try:
+        _u2net_session = ort.InferenceSession(str(U2NETP_PATH), providers=["CPUExecutionProvider"])
+        return _u2net_session
+    except Exception:
+        return None
+
+
+def _segment_crop_u2net(cv2, np, session, crop_bgr):
+    h, w = crop_bgr.shape[:2]
+    rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
+    inp = cv2.resize(rgb, (320, 320), interpolation=cv2.INTER_LINEAR).astype(np.float32) / 255.0
+    mean = np.array([0.485, 0.456, 0.406], dtype=np.float32)
+    std = np.array([0.229, 0.224, 0.225], dtype=np.float32)
+    inp = (inp - mean) / std
+    inp = np.transpose(inp, (2, 0, 1))[None, ...]
+
+    input_name = session.get_inputs()[0].name
+    pred = session.run(None, {input_name: inp})[0][0, 0]
+    p_min, p_max = float(pred.min()), float(pred.max())
+    mask = (pred - p_min) / (p_max - p_min) if (p_max - p_min) > 1e-6 else np.zeros_like(pred, dtype=np.float32)
+    mask = cv2.resize(mask.astype(np.float32), (w, h), interpolation=cv2.INTER_LINEAR)
+    return np.clip((mask - 0.25) / 0.50, 0.0, 1.0)
+
+
+def _segment_crop_grabcut(cv2, np, crop_bgr, inner_rect):
+    h, w = crop_bgr.shape[:2]
+    scale = min(1.0, 240.0 / max(w, h, 1))
+    sw, sh = max(16, int(round(w * scale))), max(16, int(round(h * scale)))
+    small = cv2.resize(crop_bgr, (sw, sh), interpolation=cv2.INTER_AREA) if scale < 1.0 else crop_bgr
+    rx, ry, rw, rh = [int(round(v * scale)) for v in inner_rect]
+    rx = max(1, min(sw - 3, rx))
+    ry = max(1, min(sh - 3, ry))
+    rw = max(2, min(sw - rx - 1, rw))
+    rh = max(2, min(sh - ry - 1, rh))
+
+    gc_mask = np.zeros((sh, sw), np.uint8)
+    bgd_model = np.zeros((1, 65), np.float64)
+    fgd_model = np.zeros((1, 65), np.float64)
+    try:
+        cv2.grabCut(small, gc_mask, (rx, ry, rw, rh), bgd_model, fgd_model, 2, cv2.GC_INIT_WITH_RECT)
+        fg = np.where((gc_mask == cv2.GC_FGD) | (gc_mask == cv2.GC_PR_FGD), 1.0, 0.0).astype(np.float32)
+    except Exception:
+        fg = np.zeros((sh, sw), np.float32)
+        cv2.ellipse(fg, (rx + rw // 2, ry + rh // 2), (max(1, rw // 2), max(1, rh // 2)), 0, 0, 360, 1.0, -1)
+    if scale < 1.0:
+        fg = cv2.resize(fg, (w, h), interpolation=cv2.INTER_LINEAR)
+    return fg
+
+
+def _make_bokeh_kernel(np, radius: int):
+    r = max(3, int(radius))
+    y, x = np.ogrid[-r:r + 1, -r:r + 1]
+    disk = ((x * x + y * y) <= r * r).astype(np.float32)
+    return disk / disk.sum()
+
+
+def _apply_bokeh_blur(cv2, np, frame_bgr, blur_strength: int, kernel):
+    h, w = frame_bgr.shape[:2]
+    sw, sh = max(2, w // 2), max(2, h // 2)
+    small = cv2.resize(frame_bgr, (sw, sh), interpolation=cv2.INTER_AREA)
+    blurred = cv2.filter2D(small, -1, kernel, borderType=cv2.BORDER_REPLICATE)
+    k = max(3, (blur_strength // 2) | 1)
+    blurred = cv2.GaussianBlur(blurred, (k, k), 0)
+    return cv2.resize(blurred, (w, h), interpolation=cv2.INTER_LINEAR)
+
+
+def _render_bokeh_segment_file(
+    ffmpeg: str,
+    source_file: Path,
+    seg: BokehSegment,
+    output_path: Path,
+    width: int,
+    height: int,
+    fps: float,
+    maxrate_kbps: int,
+    include_audio: bool = False,
+    on_progress=None,
+) -> tuple[int, str]:
+    """Render a single [seg.start, seg.end] bokeh clip to output_path. Returns (frames_written, engine)."""
+    import cv2
+    import numpy as np
+
+    mode = (seg.segmentation_mode or "auto").strip().lower()
+    blur_strength = int(_clamp(seg.blur_strength, 5, 65))
+    edge_feather = int(_clamp(seg.edge_feather, 0, 40))
+    segment_every = int(_clamp(seg.segment_every, 1, 5))
+
+    u2net_session = _get_u2net_session() if mode == "auto" else None
+    engine_used = "u2netp-onnx" if u2net_session is not None else ("feathered" if mode == "feathered" else "grabcut")
+
+    seg_duration = max(0.05, seg.end - seg.start)
+    target_frames = max(1, int(round(seg_duration * fps)))
+
+    anchors = []
+    for box in seg.boxes:
+        bx = max(0.0, min(0.99, float(box.x)))
+        by = max(0.0, min(0.99, float(box.y)))
+        bw = max(0.01, min(1.0 - bx, float(box.w)))
+        bh = max(0.01, min(1.0 - by, float(box.h)))
+        rel_time = max(0.0, float(box.time) - seg.start)
+        rel_frame = min(target_frames - 1, max(0, int(round(rel_time * fps))))
+        anchors.append({
+            "start_frame": rel_frame,
+            "rect": (
+                int(round(bx * width)),
+                int(round(by * height)),
+                max(8, int(round(bw * width))),
+                max(8, int(round(bh * height))),
+            ),
+            "tracker": None,
+            "last_rect": None,
+            "last_mask": None,
+            "last_seg_frame": -999,
+        })
+
+    track_scale = min(1.0, 640.0 / max(width, 1))
+    tw, th = max(32, int(round(width * track_scale))), max(32, int(round(height * track_scale)))
+    bokeh_kernel = _make_bokeh_kernel(np, max(3, blur_strength // 3))
+
+    command = [
+        ffmpeg, "-hide_banner", "-y",
+        "-f", "rawvideo", "-vcodec", "rawvideo",
+        "-pix_fmt", "bgr24", "-s", f"{width}x{height}", "-r", f"{fps:.4f}",
+        "-i", "pipe:0",
+    ]
+    if include_audio:
+        command += [
+            "-ss", f"{seg.start:.3f}", "-t", f"{seg_duration:.3f}",
+            "-i", str(source_file),
+            "-map", "0:v:0", "-map", "1:a?",
+            "-c:a", "aac", "-b:a", "192k", "-shortest",
+        ]
+    else:
+        command += ["-map", "0:v:0", "-an"]
+    command += [
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        "-maxrate", f"{maxrate_kbps}k", "-bufsize", f"{maxrate_kbps * 2}k",
+        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        str(output_path),
+    ]
+
+    cap = cv2.VideoCapture(str(source_file))
+    if not cap.isOpened():
+        raise HTTPException(status_code=400, detail="Unable to open video file")
+    if seg.start > 0:
+        cap.set(cv2.CAP_PROP_POS_MSEC, seg.start * 1000.0)
+
+    proc = subprocess.Popen(command, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    frame_idx = 0
+    try:
+        while frame_idx < target_frames:
+            ok, frame = cap.read()
+            if not ok:
+                break
+            if frame.shape[1] != width or frame.shape[0] != height:
+                frame = cv2.resize(frame, (width, height), interpolation=cv2.INTER_LINEAR)
+
+            track_frame = cv2.resize(frame, (tw, th), interpolation=cv2.INTER_AREA) if track_scale < 1.0 else frame
+            combined_mask = np.zeros((height, width), dtype=np.float32)
+            any_active = False
+
+            for anchor in anchors:
+                if frame_idx < anchor["start_frame"]:
+                    continue
+                if frame_idx == anchor["start_frame"]:
+                    rx, ry, rw, rh = anchor["rect"]
+                    tr_rect = (
+                        int(round(rx * track_scale)),
+                        int(round(ry * track_scale)),
+                        max(6, int(round(rw * track_scale))),
+                        max(6, int(round(rh * track_scale))),
+                    )
+                    tracker = _create_csrt_tracker(cv2)
+                    tracker.init(track_frame, tr_rect)
+                    anchor["tracker"] = tracker
+                    anchor["last_rect"] = (rx, ry, rw, rh)
+                    cur_rect = (rx, ry, rw, rh)
+                elif anchor["tracker"] is not None:
+                    tracked, box_t = anchor["tracker"].update(track_frame)
+                    if tracked:
+                        tx, ty, tbw, tbh = box_t
+                        cur_rect = (
+                            int(round(tx / track_scale)),
+                            int(round(ty / track_scale)),
+                            max(8, int(round(tbw / track_scale))),
+                            max(8, int(round(tbh / track_scale))),
+                        )
+                        anchor["last_rect"] = cur_rect
+                    else:
+                        cur_rect = anchor["last_rect"]
+                else:
+                    continue
+
+                if cur_rect is None:
+                    continue
+
+                rx, ry, rw, rh = cur_rect
+                x1 = max(0, min(width - 2, rx))
+                y1 = max(0, min(height - 2, ry))
+                x2 = max(x1 + 2, min(width, rx + rw))
+                y2 = max(y1 + 2, min(height, ry + rh))
+                bw_c, bh_c = x2 - x1, y2 - y1
+                if bw_c < 4 or bh_c < 4:
+                    continue
+
+                any_active = True
+                if engine_used == "feathered":
+                    sub = np.zeros((bh_c, bw_c), dtype=np.float32)
+                    cv2.ellipse(sub, (bw_c // 2, bh_c // 2), (max(1, bw_c // 2), max(1, bh_c // 2)), 0, 0, 360, 1.0, -1)
+                    combined_mask[y1:y2, x1:x2] = np.maximum(combined_mask[y1:y2, x1:x2], sub)
+                else:
+                    pad_x, pad_y = int(round(bw_c * 0.15)), int(round(bh_c * 0.15))
+                    px1, py1 = max(0, x1 - pad_x), max(0, y1 - pad_y)
+                    px2, py2 = min(width, x2 + pad_x), min(height, y2 + pad_y)
+                    pw, ph = px2 - px1, py2 - py1
+
+                    need_seg = anchor["last_mask"] is None or (frame_idx - anchor["last_seg_frame"]) >= segment_every
+                    if need_seg:
+                        crop = frame[py1:py2, px1:px2]
+                        if u2net_session is not None:
+                            seg_m = _segment_crop_u2net(cv2, np, u2net_session, crop)
+                        else:
+                            seg_m = _segment_crop_grabcut(cv2, np, crop, (x1 - px1, y1 - py1, bw_c, bh_c))
+                        if float(seg_m.max()) < 0.05:
+                            seg_m = np.zeros((ph, pw), dtype=np.float32)
+                            cv2.ellipse(seg_m, (pw // 2, ph // 2), (max(1, bw_c // 2), max(1, bh_c // 2)), 0, 0, 360, 1.0, -1)
+                        anchor["last_mask"] = seg_m
+                        anchor["last_seg_frame"] = frame_idx
+                    else:
+                        seg_m = cv2.resize(anchor["last_mask"], (pw, ph), interpolation=cv2.INTER_LINEAR)
+
+                    combined_mask[py1:py2, px1:px2] = np.maximum(combined_mask[py1:py2, px1:px2], seg_m)
+
+            if any_active:
+                if edge_feather > 0:
+                    fk = max(3, (edge_feather * 2 + 1) | 1)
+                    combined_mask = cv2.GaussianBlur(combined_mask, (fk, fk), 0)
+                blurred_bg = _apply_bokeh_blur(cv2, np, frame, blur_strength, bokeh_kernel)
+                alpha = combined_mask[..., None]
+                out_frame = np.clip(frame.astype(np.float32) * alpha + blurred_bg.astype(np.float32) * (1.0 - alpha), 0, 255).astype(np.uint8)
+            else:
+                out_frame = frame
+
+            proc.stdin.write(out_frame.tobytes())
+            frame_idx += 1
+            if on_progress:
+                on_progress(min(99, int((frame_idx / target_frames) * 100)))
+
+        proc.stdin.close()
+        stderr_data = proc.stderr.read().decode("utf-8", errors="replace")
+        ret = proc.wait()
+        if ret != 0:
+            if output_path.exists():
+                output_path.unlink()
+            raise HTTPException(status_code=500, detail=f"FFmpeg failed: {stderr_data[-800:]}")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        if output_path.exists():
+            output_path.unlink()
+        raise HTTPException(status_code=500, detail=f"Bokeh processing failed: {exc}") from exc
+    finally:
+        cap.release()
+
+    return frame_idx, engine_used
+
+
+def _probe_video_geometry(file: Path):
+    try:
+        import cv2
+    except ImportError:
+        raise HTTPException(status_code=500, detail="OpenCV (opencv-contrib-python-headless) is not installed")
+    cap = cv2.VideoCapture(str(file))
+    if not cap.isOpened():
+        raise HTTPException(status_code=400, detail="Unable to open video file")
+    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    fps = float(cap.get(cv2.CAP_PROP_FPS) or 24.0)
+    cap.release()
+    if fps <= 0 or fps > 240:
+        fps = 24.0
+    if width <= 0 or height <= 0:
+        raise HTTPException(status_code=400, detail="Unable to read video dimensions")
+    return width, height, fps
+
+
+@app.post("/api/media/bokeh/preview-segment")
+def preview_bokeh_segment(payload: BokehSegmentPreviewRequest, request: Request = None, queued: bool = False):
+    file = resolve_media_file(payload.path, "video")
+    ffmpeg = find_ffmpeg()
+    if not ffmpeg:
+        raise HTTPException(status_code=500, detail="FFmpeg was not found")
+    if not payload.boxes:
+        raise HTTPException(status_code=400, detail="Draw at least one bounding box for this segment")
+    if (payload.segmentation_mode or "auto").strip().lower() not in {"auto", "grabcut", "feathered"}:
+        raise HTTPException(status_code=400, detail="Invalid segmentation mode")
+
+    info = probe_media(ffmpeg, file)
+    duration = info.get("duration") or 0.0
+    if duration <= 0:
+        raise HTTPException(status_code=400, detail="Could not read video duration")
+
+    start = max(0.0, float(payload.start))
+    end = min(duration, float(payload.end))
+    if end - start < 0.1:
+        raise HTTPException(status_code=400, detail="Segment must be at least 0.1 seconds long")
+
+    width, height, fps = _probe_video_geometry(file)
+    source_kbps = int((file.stat().st_size * 8) / (duration * 1000))
+    maxrate_kbps = max(2500, min(16000, int(source_kbps * 1.5)))
+
+    BOKEH_PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+    preview_file = BOKEH_PREVIEW_DIR / f"bokeh_prev_{uuid.uuid4().hex[:8]}.mp4"
+    seg = BokehSegment(
+        start=start, end=end, boxes=payload.boxes,
+        blur_strength=payload.blur_strength, edge_feather=payload.edge_feather,
+        segmentation_mode=payload.segmentation_mode, segment_every=payload.segment_every,
+    )
+
+    def _run(on_progress=None):
+        frames, engine = _render_bokeh_segment_file(
+            ffmpeg, file, seg, preview_file, width, height, fps, maxrate_kbps,
+            include_audio=bool(info["has_audio"]), on_progress=on_progress,
+        )
+        return {
+            "name": preview_file.name,
+            "path": str(preview_file),
+            "start": round(start, 2),
+            "end": round(end, 2),
+            "frames": frames,
+            "engine": engine,
+            "stream_url": f"/api/media/stream?kind=video&path={quote(str(preview_file), safe='')}",
+        }
+
+    if queued:
+        session = _require_user_session(request)
+        label = f"{file.name} ({start:.1f}s–{end:.1f}s)"
+        return JSONResponse(enqueue_media_job(session["user_id"], "Bokeh Preview", label, _run), status_code=202)
+    return _run()
+
+
+@app.post("/api/media/bokeh")
+def apply_bokeh_effect(payload: BokehRequest, request: Request = None, queued: bool = False):
+    file = resolve_media_file(payload.path, "video")
+    ffmpeg = find_ffmpeg()
+    if not ffmpeg:
+        raise HTTPException(status_code=500, detail="FFmpeg was not found")
+
+    info = probe_media(ffmpeg, file)
+    duration = info.get("duration") or 0.0
+    if not info["has_video"] or duration <= 0:
+        raise HTTPException(status_code=400, detail="Could not read video stream or duration")
+
+    segments_in = list(payload.segments)
+    if not segments_in and payload.boxes:
+        segments_in = [BokehSegment(
+            start=0.0, end=duration, boxes=payload.boxes,
+            blur_strength=payload.blur_strength, edge_feather=payload.edge_feather,
+            segmentation_mode=payload.segmentation_mode, segment_every=payload.segment_every,
+        )]
+    if not segments_in:
+        raise HTTPException(status_code=400, detail="Add at least one bokeh segment")
+
+    resolved: list[BokehSegment] = []
+    for seg in segments_in:
+        if not seg.boxes:
+            raise HTTPException(status_code=400, detail="Each bokeh segment needs at least one bounding box")
+        if (seg.segmentation_mode or "auto").strip().lower() not in {"auto", "grabcut", "feathered"}:
+            raise HTTPException(status_code=400, detail="Invalid segmentation mode")
+        start = max(0.0, float(seg.start))
+        end = min(duration, float(seg.end))
+        if start >= duration:
+            continue
+        if end - start < 0.1:
+            raise HTTPException(status_code=400, detail="Each bokeh segment must be at least 0.1 seconds long")
+        resolved.append(seg.model_copy(update={"start": start, "end": end}))
+
+    if not resolved:
+        raise HTTPException(status_code=400, detail="Add at least one bokeh segment within the video duration")
+
+    resolved.sort(key=lambda s: s.start)
+    for i in range(1, len(resolved)):
+        if resolved[i].start < resolved[i - 1].end - 0.01:
+            raise HTTPException(status_code=400, detail="Bokeh segments cannot overlap")
+
+    width, height, fps = _probe_video_geometry(file)
+    source_kbps = int((file.stat().st_size * 8) / (duration * 1000))
+    maxrate_kbps = max(2500, min(16000, int(source_kbps * 1.5)))
+
+    output_path = file.with_name(f"{file.stem}_bokeh_{uuid.uuid4().hex[:8]}.mp4")
+    while output_path.exists():
+        output_path = file.with_name(f"{file.stem}_bokeh_{uuid.uuid4().hex[:8]}.mp4")
+
+    # Build chronological pieces: (start, end, BokehSegment | None)
+    pieces: list[tuple[float, float, BokehSegment | None]] = []
+    cursor = 0.0
+    for seg in resolved:
+        if seg.start - cursor >= 0.02:
+            pieces.append((cursor, seg.start, None))
+        pieces.append((seg.start, seg.end, seg))
+        cursor = max(cursor, seg.end)
+    if duration - cursor >= 0.02:
+        pieces.append((cursor, duration, None))
+
+    def _run(on_progress=None):
+        tmp_dir = Path(_tempfile.mkdtemp(prefix="bokeh_build_"))
+        total_frames = 0
+        engines: set[str] = set()
+        try:
+            # 1. Render or reuse each bokeh segment (takes 0..85% of progress)
+            seg_files: dict[int, Path] = {}
+            bokeh_indices = [i for i, (_, _, s) in enumerate(pieces) if s is not None]
+            total_bokeh_sec = sum(pieces[i][1] - pieces[i][0] for i in bokeh_indices) or 1.0
+            done_sec = 0.0
+
+            for idx in bokeh_indices:
+                start, end, seg = pieces[idx]
+                seg_len = end - start
+                reusable = Path(seg.preview_path) if seg.preview_path else None
+                if reusable is not None and reusable.is_file() and reusable.parent.resolve() == BOKEH_PREVIEW_DIR.resolve():
+                    seg_files[idx] = reusable
+                    engines.add("reused-preview")
+                else:
+                    seg_out = tmp_dir / f"bokeh_{idx}.mp4"
+
+                    def _seg_prog(pct, base=done_sec, slen=seg_len):
+                        if on_progress:
+                            overall = ((base + slen * (pct / 100.0)) / total_bokeh_sec) * 85.0
+                            on_progress(min(85, int(overall)))
+
+                    frames, eng = _render_bokeh_segment_file(
+                        ffmpeg, file, seg, seg_out, width, height, fps, maxrate_kbps,
+                        include_audio=False, on_progress=_seg_prog,
+                    )
+                    seg_files[idx] = seg_out
+                    total_frames += frames
+                    engines.add(eng)
+                done_sec += seg_len
+                if on_progress:
+                    on_progress(min(85, int((done_sec / total_bokeh_sec) * 85.0)))
+
+            # 2. Assemble non-bokeh gaps + bokeh segments in exact chronological order with original audio (85..100%)
+            cmd = [ffmpeg, "-hide_banner", "-y", "-i", str(file)]
+            input_map: dict[int, int] = {}
+            next_inp = 1
+            for idx in bokeh_indices:
+                cmd += ["-i", str(seg_files[idx])]
+                input_map[idx] = next_inp
+                next_inp += 1
+
+            graphs = []
+            concat_labels = []
+            for idx, (start, end, seg) in enumerate(pieces):
+                if seg is None:
+                    graphs.append(
+                        f"[0:v:0]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS,"
+                        f"fps={fps:.4f},scale={width}:{height},setsar=1,format=yuv420p[p{idx}]"
+                    )
+                else:
+                    inp_i = input_map[idx]
+                    graphs.append(
+                        f"[{inp_i}:v:0]setpts=PTS-STARTPTS,fps={fps:.4f},scale={width}:{height},setsar=1,format=yuv420p[p{idx}]"
+                    )
+                concat_labels.append(f"[p{idx}]")
+
+            if len(concat_labels) == 1:
+                graphs.append(f"{concat_labels[0]}format=yuv420p[vout]")
+            else:
+                graphs.append(f"{''.join(concat_labels)}concat=n={len(concat_labels)}:v=1:a=0,format=yuv420p[vout]")
+
+            cmd += [
+                "-filter_complex", ";".join(graphs),
+                "-map", "[vout]", "-map", "0:a?",
+                "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+                "-maxrate", f"{maxrate_kbps}k", "-bufsize", f"{maxrate_kbps * 2}k",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "copy",
+                "-movflags", "+faststart",
+                str(output_path),
+            ]
+
+            def _mux_prog(pct):
+                if on_progress:
+                    on_progress(min(99, 85 + int(pct * 0.14)))
+
+            try:
+                run_ffmpeg_with_progress(cmd, duration, _mux_prog)
+            except subprocess.CalledProcessError as error:
+                if output_path.exists():
+                    output_path.unlink()
+                raise HTTPException(status_code=500, detail=f"FFmpeg assembly failed: {error.stderr[-800:]}")
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        return {
+            "name": output_path.name,
+            "path": str(output_path),
+            "folder": str(output_path.parent),
+            "segments": len(resolved),
+            "frames": total_frames,
+            "engine": ", ".join(sorted(engines)) if engines else "bokeh",
+        }
+
+    if queued:
+        session = _require_user_session(request)
+        return JSONResponse(enqueue_media_job(session["user_id"], "Bokeh Final", file.name, _run), status_code=202)
+    return _run()
+
+
+def _row_to_bokeh_project(row) -> dict:
+    import json
+    try:
+        segments = json.loads(row["segments_json"])
+    except Exception:
+        segments = []
+    # Attach live preview stream_url if the saved preview file still exists on disk
+    for seg in segments:
+        pp = (seg.get("preview_path") or "").strip()
+        if pp and Path(pp).is_file():
+            seg["preview_stream_url"] = f"/api/media/stream?kind=video&path={quote(pp, safe='')}"
+        else:
+            seg["preview_path"] = ""
+            seg["preview_stream_url"] = ""
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "video_path": row["video_path"],
+        "segments": segments,
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+@app.get("/api/bokeh-projects")
+def list_bokeh_projects(request: Request):
+    session = _require_user_session(request)
+    with db() as connection:
+        rows = connection.execute(
+            "SELECT * FROM bokeh_projects WHERE user_id = ? ORDER BY updated_at DESC, id DESC",
+            (session["user_id"],),
+        ).fetchall()
+    return [_row_to_bokeh_project(row) for row in rows]
+
+
+@app.post("/api/bokeh-projects")
+def create_bokeh_project(payload: BokehProjectPayload, request: Request):
+    import json
+    session = _require_user_session(request)
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Bokeh project name is required")
+    segments_json = json.dumps([seg.model_dump() for seg in payload.segments])
+    with db() as connection:
+        cursor = connection.execute(
+            """INSERT INTO bokeh_projects (user_id, name, video_path, segments_json)
+               VALUES (?, ?, ?, ?)""",
+            (session["user_id"], name, payload.video_path.strip(), segments_json),
+        )
+        row = connection.execute(
+            "SELECT * FROM bokeh_projects WHERE id = ?", (cursor.lastrowid,)
+        ).fetchone()
+    return _row_to_bokeh_project(row)
+
+
+@app.put("/api/bokeh-projects/{project_id}")
+def update_bokeh_project(project_id: int, payload: BokehProjectPayload, request: Request):
+    import json
+    session = _require_user_session(request)
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Bokeh project name is required")
+    segments_json = json.dumps([seg.model_dump() for seg in payload.segments])
+    with db() as connection:
+        cursor = connection.execute(
+            """UPDATE bokeh_projects
+               SET name = ?, video_path = ?, segments_json = ?, updated_at = CURRENT_TIMESTAMP
+               WHERE id = ? AND user_id = ?""",
+            (name, payload.video_path.strip(), segments_json, project_id, session["user_id"]),
+        )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Bokeh project not found")
+        row = connection.execute(
+            "SELECT * FROM bokeh_projects WHERE id = ?", (project_id,)
+        ).fetchone()
+    return _row_to_bokeh_project(row)
+
+
+@app.delete("/api/bokeh-projects/{project_id}")
+def delete_bokeh_project(project_id: int, request: Request):
+    session = _require_user_session(request)
+    with db() as connection:
+        cursor = connection.execute(
+            "DELETE FROM bokeh_projects WHERE id = ? AND user_id = ?",
+            (project_id, session["user_id"]),
+        )
+    return {"success": True, "id": project_id, "deleted": cursor.rowcount > 0}
+
+
+# ---------------------------------------------------------------------------
+# Spatial Crop, Rotate & Flip + Ken Burns (Photo to Pan & Zoom Video)
+# ---------------------------------------------------------------------------
+CROP_IMAGE_TYPES = {
+    ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+    ".webp": "image/webp", ".bmp": "image/bmp",
+}
+KEN_BURNS_MOTIONS = {
+    "zoom_in", "zoom_out", "pan_left_to_right", "pan_right_to_left",
+    "pan_top_to_bottom", "pan_bottom_to_top", "zoom_in_top_right",
+}
+KEN_BURNS_RESOLUTIONS = {
+    "1920x1080": (1920, 1080),
+    "1280x720": (1280, 720),
+    "1080x1920": (1080, 1920),
+    "1080x1080": (1080, 1080),
+}
+
+
+class SpatialTransformRequest(BaseModel):
+    path: str
+    crop_x: float = 0.0        # normalized 0..1
+    crop_y: float = 0.0        # normalized 0..1
+    crop_w: float = 1.0        # normalized 0..1
+    crop_h: float = 1.0        # normalized 0..1
+    rotate: int = 0            # 0, 90, 180, 270
+    flip_h: bool = False
+    flip_v: bool = False
+
+
+class KenBurnsRequest(BaseModel):
+    path: str
+    duration_seconds: float = 8.0   # 1..120
+    motion: str = "zoom_in"
+    zoom_amount: float = 1.3        # 1.05..2.0
+    resolution: str = "1280x720"
+    fps: int = 30                   # 24 or 30
+
+
+@app.post("/api/media/transform")
+def transform_video(payload: SpatialTransformRequest, request: Request = None, queued: bool = False):
+    file = resolve_media_file(payload.path, "video")
+    ffmpeg = find_ffmpeg()
+    if not ffmpeg:
+        raise HTTPException(status_code=500, detail="FFmpeg was not found")
+
+    if payload.rotate not in (0, 90, 180, 270):
+        raise HTTPException(status_code=400, detail="Rotate must be 0, 90, 180, or 270 degrees")
+
+    cx = _clamp(payload.crop_x, 0.0, 0.98)
+    cy = _clamp(payload.crop_y, 0.0, 0.98)
+    cw = _clamp(payload.crop_w, 0.02, 1.0 - cx)
+    ch = _clamp(payload.crop_h, 0.02, 1.0 - cy)
+    has_crop = cx > 0.002 or cy > 0.002 or cw < 0.998 or ch < 0.998
+    if not has_crop and payload.rotate == 0 and not payload.flip_h and not payload.flip_v:
+        raise HTTPException(status_code=400, detail="Select a crop area, rotation, or flip")
+
+    info = probe_media(ffmpeg, file)
+    if not info["has_video"]:
+        raise HTTPException(status_code=400, detail="The selected file has no video stream")
+
+    filters = []
+    if has_crop:
+        # Ensure even width/height >= 16 for yuv420p H.264
+        filters.append(
+            f"crop=w='max(16,trunc(iw*{cw:.5f}/2)*2)':h='max(16,trunc(ih*{ch:.5f}/2)*2)'"
+            f":x='trunc(iw*{cx:.5f}/2)*2':y='trunc(ih*{cy:.5f}/2)*2'"
+        )
+    if payload.rotate == 90:
+        filters.append("transpose=1")
+    elif payload.rotate == 180:
+        filters.append("hflip,vflip")
+    elif payload.rotate == 270:
+        filters.append("transpose=2")
+    if payload.flip_h:
+        filters.append("hflip")
+    if payload.flip_v:
+        filters.append("vflip")
+    filters.append("scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p")
+
+    duration = info.get("duration") or 0.0
+    if duration > 0:
+        source_kbps = int((file.stat().st_size * 8) / (duration * 1000))
+        maxrate_kbps = max(2500, min(16000, int(source_kbps * 1.5)))
+    else:
+        maxrate_kbps = 8000
+
+    output_path = file.with_name(f"{file.stem}_transformed_{uuid.uuid4().hex[:8]}.mp4")
+    while output_path.exists():
+        output_path = file.with_name(f"{file.stem}_transformed_{uuid.uuid4().hex[:8]}.mp4")
+
+    command = [
+        ffmpeg, "-hide_banner", "-y",
+        "-i", str(file),
+        "-vf", ",".join(filters),
+        "-map", "0:v:0", "-map", "0:a?",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        "-maxrate", f"{maxrate_kbps}k", "-bufsize", f"{maxrate_kbps * 2}k",
+        "-pix_fmt", "yuv420p",
+        "-c:a", "copy",
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+    def _run(on_progress=None):
+        try:
+            run_ffmpeg_with_progress(command, duration, on_progress)
+        except subprocess.CalledProcessError as error:
+            if output_path.exists():
+                output_path.unlink()
+            raise HTTPException(status_code=500, detail=f"FFmpeg failed: {error.stderr[-800:]}")
+        return {"name": output_path.name, "path": str(output_path), "folder": str(output_path.parent)}
+
+    if queued:
+        session = _require_user_session(request)
+        return JSONResponse(enqueue_media_job(session["user_id"], "Crop, Rotate & Flip", file.name, _run), status_code=202)
+    return _run()
+
+
+@app.post("/api/media/ken-burns")
+def generate_ken_burns_video(payload: KenBurnsRequest, request: Request = None, queued: bool = False):
+    file = resolve_media_file(payload.path, "image")
+    ffmpeg = find_ffmpeg()
+    if not ffmpeg:
+        raise HTTPException(status_code=500, detail="FFmpeg was not found")
+
+    duration = float(payload.duration_seconds)
+    if not math.isfinite(duration) or duration < 1.0 or duration > 120.0:
+        raise HTTPException(status_code=400, detail="Video length must be between 1 and 120 seconds")
+    motion = (payload.motion or "zoom_in").strip().lower()
+    if motion not in KEN_BURNS_MOTIONS:
+        raise HTTPException(status_code=400, detail=f"Unsupported motion '{motion}'")
+    if payload.resolution not in KEN_BURNS_RESOLUTIONS:
+        raise HTTPException(status_code=400, detail="Unsupported output resolution")
+    fps = 24 if payload.fps == 24 else 30
+    zoom_max = _clamp(payload.zoom_amount, 1.05, 2.0)
+
+    out_w, out_h = KEN_BURNS_RESOLUTIONS[payload.resolution]
+    frames = max(fps, int(round(duration * fps)))
+    denom = max(1, frames - 1)
+    dz = zoom_max - 1.0
+    # Fit the entire image inside 2x target (no pre-cropping) so z=1.0 shows 100% of the full photo
+    pre_w, pre_h = out_w * 2, out_h * 2
+    p = f"min(1,max(0,(on-1)/{denom}))"
+
+    if motion == "zoom_in":
+        z_expr = f"1+{dz:.4f}*{p}"
+        x_expr = "iw/2-(iw/zoom/2)"
+        y_expr = "ih/2-(ih/zoom/2)"
+    elif motion == "zoom_out":
+        z_expr = f"{zoom_max:.4f}-{dz:.4f}*{p}"
+        x_expr = "iw/2-(iw/zoom/2)"
+        y_expr = "ih/2-(ih/zoom/2)"
+    elif motion == "pan_left_to_right":
+        z_expr = f"{zoom_max:.4f}"
+        x_expr = f"(iw-iw/zoom)*{p}"
+        y_expr = "ih/2-(ih/zoom/2)"
+    elif motion == "pan_right_to_left":
+        z_expr = f"{zoom_max:.4f}"
+        x_expr = f"(iw-iw/zoom)*(1-{p})"
+        y_expr = "ih/2-(ih/zoom/2)"
+    elif motion == "pan_top_to_bottom":
+        z_expr = f"{zoom_max:.4f}"
+        x_expr = "iw/2-(iw/zoom/2)"
+        y_expr = f"(ih-ih/zoom)*{p}"
+    elif motion == "pan_bottom_to_top":
+        z_expr = f"{zoom_max:.4f}"
+        x_expr = "iw/2-(iw/zoom/2)"
+        y_expr = f"(ih-ih/zoom)*(1-{p})"
+    else:  # zoom_in_top_right
+        z_expr = f"1+{dz:.4f}*{p}"
+        x_expr = f"(iw-iw/zoom)*(0.5+0.5*{p})"
+        y_expr = f"(ih-ih/zoom)*(0.5-0.5*{p})"
+
+    vf = (
+        f"scale={pre_w}:{pre_h}:force_original_aspect_ratio=decrease,"
+        f"pad={pre_w}:{pre_h}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,"
+        f"zoompan=z='{z_expr}':x='{x_expr}':y='{y_expr}':d={frames}:s={out_w}x{out_h}:fps={fps},"
+        f"format=yuv420p"
+    )
+
+    output_path = file.with_name(f"{file.stem}_kenburns_{uuid.uuid4().hex[:8]}.mp4")
+    while output_path.exists():
+        output_path = file.with_name(f"{file.stem}_kenburns_{uuid.uuid4().hex[:8]}.mp4")
+
+    command = [
+        ffmpeg, "-hide_banner", "-y",
+        "-i", str(file),
+        "-vf", vf,
+        "-t", f"{duration:.3f}",
+        "-c:v", "libx264", "-preset", "veryfast", "-crf", "22",
+        "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+    def _run(on_progress=None):
+        try:
+            run_ffmpeg_with_progress(command, duration, on_progress)
+        except subprocess.CalledProcessError as error:
+            if output_path.exists():
+                output_path.unlink()
+            raise HTTPException(status_code=500, detail=f"FFmpeg failed: {error.stderr[-800:]}")
+        return {
+            "name": output_path.name,
+            "path": str(output_path),
+            "folder": str(output_path.parent),
+            "duration": round(duration, 2),
+            "stream_url": f"/api/media/stream?kind=video&path={quote(str(output_path), safe='')}",
+        }
+
+    if queued:
+        session = _require_user_session(request)
+        return JSONResponse(enqueue_media_job(session["user_id"], "Ken Burns", file.name, _run), status_code=202)
+    return _run()
+
+
+# ---------------------------------------------------------------------------
+# FIFO Media Job Queue (single worker thread, live % progress)
+# ---------------------------------------------------------------------------
+import queue as _queue
+import threading as _threading
+
+_job_queue: "_queue.Queue[int]" = _queue.Queue()
+_jobs_lock = _threading.Lock()
+_jobs_store: dict[int, dict] = {}
+_jobs_order: list[int] = []
+_job_seq = 0
+_worker_started = False
+
+
+def _update_job(job_id: int, **fields):
+    with _jobs_lock:
+        job = _jobs_store.get(job_id)
+        if job is not None:
+            job.update(fields)
+
+
+def _job_public(job: dict) -> dict:
+    return {
+        "id": job["id"],
+        "tool": job["tool"],
+        "label": job["label"],
+        "status": job["status"],
+        "progress": job["progress"],
+        "result": job["result"],
+        "error": job["error"],
+        "created_at": job["created_at"],
+    }
+
+
+def _job_worker_loop():
+    while True:
+        job_id = _job_queue.get()
+        try:
+            with _jobs_lock:
+                job = _jobs_store.get(job_id)
+                if job is None:
+                    continue
+                job["status"] = "running"
+                job["progress"] = 0
+                runner = job["runner"]
+
+            def report_progress(pct: int):
+                _update_job(job_id, progress=max(0, min(99, int(pct))))
+
+            result = runner(report_progress)
+            _update_job(job_id, status="completed", progress=100, result=result, error="")
+        except HTTPException as exc:
+            _update_job(job_id, status="failed", error=str(exc.detail))
+        except Exception as exc:
+            _update_job(job_id, status="failed", error=str(exc))
+        finally:
+            _job_queue.task_done()
+
+
+def _ensure_job_worker():
+    global _worker_started
+    with _jobs_lock:
+        if not _worker_started:
+            t = _threading.Thread(target=_job_worker_loop, daemon=True, name="media-job-worker")
+            t.start()
+            _worker_started = True
+
+
+def enqueue_media_job(user_id: int, tool: str, label: str, runner) -> dict:
+    global _job_seq
+    _ensure_job_worker()
+    with _jobs_lock:
+        _job_seq += 1
+        job_id = _job_seq
+        job = {
+            "id": job_id,
+            "user_id": user_id,
+            "tool": tool,
+            "label": label,
+            "status": "pending",
+            "progress": 0,
+            "result": None,
+            "error": "",
+            "created_at": datetime.now().strftime("%H:%M:%S"),
+            "runner": runner,
+        }
+        _jobs_store[job_id] = job
+        _jobs_order.append(job_id)
+        pub = _job_public(job)
+    _job_queue.put(job_id)
+    return pub
+
+
+def run_ffmpeg_with_progress(command: list[str], expected_duration: float, on_progress=None):
+    """Run an FFmpeg command and report 0..99% progress via -progress pipe:1."""
+    if on_progress is None:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+        return
+
+    cmd = [command[0], "-progress", "pipe:1", "-nostats"] + command[1:]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+    stderr_chunks: list[str] = []
+
+    def _drain_stderr():
+        if proc.stderr:
+            stderr_chunks.append(proc.stderr.read())
+
+    err_thread = _threading.Thread(target=_drain_stderr, daemon=True)
+    err_thread.start()
+
+    try:
+        if proc.stdout:
+            for line in proc.stdout:
+                line = line.strip()
+                if line.startswith("out_time_us=") and expected_duration > 0:
+                    val = line.split("=", 1)[1].strip()
+                    if val.isdigit():
+                        sec = int(val) / 1_000_000.0
+                        on_progress(min(99, int((sec / expected_duration) * 100)))
+        ret = proc.wait()
+        err_thread.join(timeout=2)
+        if ret != 0:
+            err_text = "".join(stderr_chunks)
+            raise subprocess.CalledProcessError(ret, cmd, stderr=err_text)
+    except Exception:
+        if proc.poll() is None:
+            proc.kill()
+        raise
+
+
+@app.get("/api/jobs")
+def list_media_jobs(request: Request):
+    session = _require_user_session(request)
+    uid = session["user_id"]
+    with _jobs_lock:
+        user_jobs = [_job_public(_jobs_store[jid]) for jid in _jobs_order if jid in _jobs_store and _jobs_store[jid]["user_id"] == uid]
+    running = [j for j in user_jobs if j["status"] == "running"]
+    pending = [j for j in user_jobs if j["status"] == "pending"]
+    finished = [j for j in reversed(user_jobs) if j["status"] in ("completed", "failed")]
+    return running + pending + finished
+
+
+@app.delete("/api/jobs/finished")
+def clear_finished_jobs(request: Request):
+    session = _require_user_session(request)
+    uid = session["user_id"]
+    removed = 0
+    with _jobs_lock:
+        to_del = [
+            jid for jid in list(_jobs_order)
+            if jid in _jobs_store and _jobs_store[jid]["user_id"] == uid and _jobs_store[jid]["status"] in ("completed", "failed")
+        ]
+        for jid in to_del:
+            _jobs_store.pop(jid, None)
+            _jobs_order.remove(jid)
+            removed += 1
+    return {"success": True, "removed": removed}
 
 
 # ---------------------------------------------------------------------------
@@ -2311,6 +3595,18 @@ def init_auth_db():
                 name TEXT NOT NULL,
                 video_path TEXT NOT NULL DEFAULT '',
                 segments_json TEXT NOT NULL,
+                transitions_json TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES app_users(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS bokeh_projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                video_path TEXT NOT NULL DEFAULT '',
+                segments_json TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY(user_id) REFERENCES app_users(id) ON DELETE CASCADE
@@ -2319,6 +3615,9 @@ def init_auth_db():
         user_columns = {row[1] for row in connection.execute("PRAGMA table_info(app_users)")}
         if "gemini_key_enc" not in user_columns:
             connection.execute("ALTER TABLE app_users ADD COLUMN gemini_key_enc TEXT NOT NULL DEFAULT ''")
+        fx_columns = {row[1] for row in connection.execute("PRAGMA table_info(effects_projects)")}
+        if "transitions_json" not in fx_columns:
+            connection.execute("ALTER TABLE effects_projects ADD COLUMN transitions_json TEXT NOT NULL DEFAULT '[]'")
         connection.execute("DELETE FROM app_sessions WHERE expires_at < ?", (time.time(),))
 
 

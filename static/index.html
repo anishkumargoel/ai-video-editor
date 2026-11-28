@@ -34,7 +34,14 @@
     #crop-actions { min-height:calc(100vh - 66px); border-left:1px solid var(--line); background:#0f1117; padding:16px; display:flex; flex-direction:column; gap:10px; }
     #crop-actions h3 { margin:0 0 4px; }
     #crop-page:not([hidden]) { display:block; max-width:1000px; margin:0 auto; padding:24px; }
-    #effects-page:not([hidden]) { display:block; max-width:1240px; margin:0 auto; padding:24px; }
+    #effects-page:not([hidden]), #bokeh-page:not([hidden]), #transform-page:not([hidden]), #kenburns-page:not([hidden]) { display:block; max-width:1240px; margin:0 auto; padding:24px; }
+    #tf-stage { position:relative; width:100%; background:black; border-radius:10px; overflow:hidden; }
+    #tf-video { width:100%; max-height:62vh; display:block; }
+    #tf-canvas { position:absolute; top:0; left:0; right:0; bottom:48px; width:100%; height:calc(100% - 48px); cursor:crosshair; }
+    .tf-rot.active { background:var(--accent); border-color:var(--accent); font-weight:700; }
+    #bokeh-stage { position:relative; width:100%; background:black; border-radius:10px; overflow:hidden; }
+    #bokeh-video { width:100%; max-height:62vh; display:block; }
+    #bokeh-canvas { position:absolute; top:0; left:0; right:0; bottom:48px; width:100%; height:calc(100% - 48px); }
     .fx-layout:not([hidden]) { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(320px,0.8fr); gap:16px; align-items:start; }
     #fx-stage { position:relative; width:100%; background:black; border-radius:10px; overflow:hidden; }
     #fx-video { width:100%; max-height:62vh; display:block; }
@@ -53,9 +60,10 @@
     .fx-proj-load:hover { background:#242832; }
     .fx-proj-del { border:0; border-left:1px solid var(--line); background:transparent; color:#ffb4a9; padding:7px 9px; font-size:12px; }
     .fx-proj-del:hover { background:#462528; }
-    #fx-bar { position:relative; height:16px; margin:12px 0 4px; border-radius:8px; background:#242832; cursor:pointer; overflow:hidden; }
+    #fx-bar, #bokeh-bar { position:relative; height:16px; margin:12px 0 4px; border-radius:8px; background:#242832; cursor:pointer; overflow:hidden; }
     .fx-bar-seg { position:absolute; top:0; bottom:0; opacity:0.85; }
-    #fx-playhead { position:absolute; top:0; bottom:0; width:2px; background:white; left:0; pointer-events:none; z-index:2; }
+    .fx-bar-tr { position:absolute; top:0; bottom:0; background:repeating-linear-gradient(45deg,#ffffff,#ffffff 3px,#ffd166 3px,#ffd166 6px); opacity:0.95; z-index:1; }
+    #fx-playhead, #bokeh-playhead { position:absolute; top:0; bottom:0; width:2px; background:white; left:0; pointer-events:none; z-index:2; }
     .fx-range-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:6px; }
     .fx-range-row label { display:flex; align-items:center; gap:6px; color:#9da7b7; font-size:14px; }
     .fx-range-row input { width:92px; padding:8px; }
@@ -81,8 +89,24 @@
     #media-current-path { padding:8px 16px; font-size:12px; word-break:break-all; }
     #media-list { overflow-y:auto; padding:0 16px 8px; }
     #media-dialog-footer { display:flex; justify-content:flex-end; padding:12px 16px; border-top:1px solid var(--line); }
-    #projects-sidebar { min-height:calc(100vh - 66px); border-right:1px solid var(--line); background:#0f1117; padding:16px; overflow-y:auto; }
+    #projects-sidebar { height:calc(100vh - 66px); border-right:1px solid var(--line); background:#0f1117; display:grid; grid-template-rows:minmax(0,1fr) minmax(0,1fr); overflow:hidden; position:sticky; top:66px; }
+    #projects-pane { min-height:0; overflow-y:auto; padding:16px; border-bottom:1px solid var(--line); }
+    #jobs-pane { min-height:0; overflow-y:auto; padding:16px; }
     #projects-sidebar h3 { margin:0 0 12px; }
+    .jobs-header { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; }
+    .jobs-header h3 { margin:0 !important; }
+    #scheduled-jobs-list { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+    .job-card { border:1px solid var(--line); border-radius:8px; padding:10px; background:var(--panel); font-size:13px; }
+    .job-card-top { display:flex; align-items:center; justify-content:space-between; gap:6px; font-weight:700; }
+    .job-file { color:#9da7b7; font-size:12px; margin-top:3px; word-break:break-all; }
+    .job-badge { font-size:11px; padding:2px 7px; border-radius:999px; font-weight:700; white-space:nowrap; }
+    .job-badge.pending { background:#2a2f3d; color:#cbd3e1; }
+    .job-badge.running { background:#4a251c; color:#ff9e8f; }
+    .job-badge.completed { background:#1c3d2a; color:#7ce8a8; }
+    .job-badge.failed { background:#462528; color:#ffb4a9; }
+    .job-progress-track { height:6px; border-radius:999px; background:#262b36; overflow:hidden; margin-top:7px; }
+    .job-progress-fill { height:100%; background:var(--accent); transition:width .25s ease; }
+    .job-detail { font-size:12px; margin-top:5px; word-break:break-all; }
     #project-list { display:flex; flex-direction:column; gap:8px; }
     .project-card { width:100%; text-align:left; color:white; cursor:pointer; border:1px solid var(--line); border-radius:9px; padding:12px 14px; background:var(--panel); }
     .tabs { height:48px; display:flex; align-items:end; gap:4px; border-bottom:1px solid var(--line); padding:0 16px; background:#11141b; }
@@ -167,6 +191,8 @@
     @media(max-width:800px){
       main { grid-template-columns:1fr; }
       #first-page:not([hidden]) { grid-template-columns:1fr; }
+      #projects-sidebar { height:auto; position:static; grid-template-rows:auto auto; }
+      #projects-pane, #jobs-pane { max-height:360px; }
       #crop-actions { min-height:0; border-left:0; border-top:1px solid var(--line); }
       .fx-layout:not([hidden]) { grid-template-columns:1fr; }
       #videos-panel { grid-template-columns:290px minmax(0,1fr); }
@@ -217,8 +243,17 @@
 
   <main id="first-page">
     <aside id="projects-sidebar">
-      <h3>Existing projects</h3>
-      <div id="project-list"></div>
+      <div id="projects-pane">
+        <h3>Existing projects</h3>
+        <div id="project-list"></div>
+      </div>
+      <div id="jobs-pane">
+        <div class="jobs-header">
+          <h3>Scheduled jobs</h3>
+          <button id="clear-jobs-button" class="secondary" type="button" style="padding:4px 8px; font-size:12px;">Clear</button>
+        </div>
+        <ul id="scheduled-jobs-list"></ul>
+      </div>
     </aside>
     <form id="project-form">
       <h2>Create a video project</h2>
@@ -234,6 +269,9 @@
       <button id="crop-video-button" class="primary" type="button">Crop Video</button>
       <button id="crop-audio-button" class="primary" type="button">Crop Audio</button>
       <button id="video-effects-button" class="primary" type="button">Video Effects</button>
+      <button id="bokeh-button" class="primary" type="button">Bokeh Effect</button>
+      <button id="transform-button" class="primary" type="button">Crop, Rotate &amp; Flip</button>
+      <button id="kenburns-button" class="primary" type="button">Ken Burns (Pan &amp; Zoom)</button>
     </aside>
   </main>
 
@@ -323,6 +361,32 @@
         <p class="muted" style="font-size:12px; margin:0 0 10px;">Uncovered parts of the video stay unchanged. Leave segments empty to apply the right-side controls to the entire video.</p>
         <ul id="fx-segment-list" class="prompt-list"></ul>
 
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin:18px 0 8px; padding-top:14px; border-top:1px solid var(--line);">
+          <h3 style="margin:0;">Transitions</h3>
+          <button id="fx-clear-transitions" class="secondary" type="button">Clear transitions</button>
+        </div>
+        <p class="muted" style="font-size:12px; margin:0 0 10px;">Add transitions anywhere on the timeline — on normal video or at effect boundaries (e.g. 0:09 → 0:10, 0:30 → 0:31, 0:50 → 0:51).</p>
+        <div class="fx-range-row">
+          <label>From <input id="fx-tr-start" placeholder="0:09"></label>
+          <button id="fx-tr-start-here" class="secondary" type="button">Here</button>
+          <label>To <input id="fx-tr-end" placeholder="0:10"></label>
+          <button id="fx-tr-end-here" class="secondary" type="button">Here</button>
+        </div>
+        <div class="crop-tools" style="margin:8px 0 10px;">
+          <select id="fx-tr-type" style="flex:1 1 180px; border:1px solid #46505f; border-radius:7px; padding:9px; background:#0b0d12; color:white;">
+            <option value="fade_black">Dip to Black</option>
+            <option value="fade_white">Flash / Dip to White</option>
+            <option value="fade_in">Fade In from Black</option>
+            <option value="fade_out">Fade Out to Black</option>
+            <option value="blur_dissolve">Blur Dissolve</option>
+            <option value="wipe_left">Wipe Left</option>
+            <option value="wipe_right">Wipe Right</option>
+            <option value="zoom_flash">Zoom / Whip Flash</option>
+          </select>
+          <button id="fx-add-transition" class="secondary" type="button">Add transition</button>
+        </div>
+        <ul id="fx-transition-list" class="prompt-list"></ul>
+
         <div class="crop-tools" style="margin-top:14px;">
           <button id="fx-save" class="primary" type="button">Save as new video file</button>
         </div>
@@ -339,6 +403,21 @@
           <button id="fx-end-max" class="secondary" type="button">To end</button>
         </div>
         <p class="muted" style="font-size:12px; margin:4px 0 14px;">Leave "To" blank to apply until the end of the video (works even when loaded onto a new video of different length).</p>
+
+        <h3>Speed &amp; Slow-Motion</h3>
+        <div class="fx-slider-row">
+          <label for="fx-speed">Playback speed</label>
+          <input id="fx-speed" type="range" min="0.25" max="4.0" step="0.25" value="1.0">
+          <span id="fx-speed-val">1.00×</span>
+        </div>
+        <div class="fx-preset-group" style="margin-bottom:14px;">
+          <button type="button" class="secondary fx-speed-quick" data-speed="0.25">0.25×</button>
+          <button type="button" class="secondary fx-speed-quick" data-speed="0.5">0.5× Slow</button>
+          <button type="button" class="secondary fx-speed-quick" data-speed="1">1× Normal</button>
+          <button type="button" class="secondary fx-speed-quick" data-speed="1.5">1.5×</button>
+          <button type="button" class="secondary fx-speed-quick" data-speed="2">2× Fast</button>
+          <button type="button" class="secondary fx-speed-quick" data-speed="4">4×</button>
+        </div>
 
         <h3>Presets</h3>
         <div id="fx-presets" class="fx-preset-group">
@@ -409,6 +488,256 @@
           <button id="fx-reset" class="secondary" type="button">Reset controls</button>
         </div>
       </div>
+    </div>
+  </main>
+
+  <main id="bokeh-page" hidden>
+    <div class="crop-header">
+      <h2>Bokeh Effect (Segmented Subject Tracking)</h2>
+      <button id="bokeh-back" class="secondary" type="button">Back</button>
+    </div>
+
+    <div class="crop-card">
+      <div class="fx-project-bar">
+        <div class="fx-project-inputs">
+          <input id="bokeh-project-name" placeholder="Bokeh project name (e.g. Doll Closeups)">
+          <button id="bokeh-project-save" class="primary" type="button">Save bokeh project</button>
+          <button id="bokeh-project-save-new" class="secondary" type="button" hidden>Save as new project</button>
+          <button id="bokeh-project-new" class="secondary" type="button">New</button>
+        </div>
+        <p id="bokeh-project-status" class="form-status" style="margin:6px 0 0;"></p>
+      </div>
+      <div id="bokeh-saved-projects" class="fx-saved-projects"></div>
+    </div>
+
+    <div class="crop-card">
+      <div class="folder-row">
+        <input id="bokeh-path" readonly placeholder="No video selected">
+        <button id="bokeh-select" class="primary" type="button">Select video</button>
+      </div>
+    </div>
+
+    <div id="bokeh-editor" class="fx-layout" hidden>
+      <div class="crop-card">
+        <div id="bokeh-stage">
+          <video id="bokeh-video" controls playsinline preload="metadata"></video>
+          <canvas id="bokeh-canvas"></canvas>
+        </div>
+        <div id="bokeh-bar" title="Click to seek. Highlighted blocks = bokeh segments"><div id="bokeh-playhead"></div></div>
+        <div class="crop-tools" style="margin-top:10px;">
+          <button id="bokeh-play-toggle" class="secondary" type="button">Play / Pause</button>
+          <button id="bokeh-goto-start" class="secondary" type="button">Go to 0:00</button>
+          <button id="bokeh-draw-toggle" class="primary" type="button">Draw box mode: ON</button>
+        </div>
+
+        <div id="bokeh-seg-preview-wrap" hidden style="margin-top:14px; padding-top:14px; border-top:1px solid var(--line);">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+            <strong id="bokeh-seg-preview-title">Segment Preview</strong>
+            <button id="bokeh-seg-preview-close" class="secondary" type="button" style="padding:4px 8px; font-size:12px;">Hide</button>
+          </div>
+          <video id="bokeh-seg-preview-video" controls playsinline preload="metadata" style="width:100%; max-height:40vh;"></video>
+        </div>
+
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin:16px 0 8px; padding-top:14px; border-top:1px solid var(--line);">
+          <h3 style="margin:0;">Bokeh Segments</h3>
+          <button id="bokeh-clear-segments" class="secondary" type="button">Clear segments</button>
+        </div>
+        <p class="muted" style="font-size:12px; margin:0 0 10px;">Uncovered parts stay untouched. Preview any segment first — already-previewed segments are reused when saving the final video.</p>
+        <ul id="bokeh-segment-list" class="prompt-list"></ul>
+
+        <div class="crop-tools" style="margin-top:14px;">
+          <button id="bokeh-save" class="primary" type="button">Save final video</button>
+        </div>
+        <p id="bokeh-status" class="form-status"></p>
+      </div>
+
+      <div class="crop-card">
+        <h3 style="margin-top:0;">1. Segment Time Range</h3>
+        <div class="fx-range-row">
+          <label>From <input id="bokeh-seg-start" value="0:00" placeholder="0:05"></label>
+          <button id="bokeh-start-here" class="secondary" type="button">Here</button>
+          <label>To <input id="bokeh-seg-end" placeholder="0:15"></label>
+          <button id="bokeh-end-here" class="secondary" type="button">Here</button>
+        </div>
+        <p class="muted" style="font-size:12px; margin:4px 0 14px;">Seek to the segment start, draw 1+ bounding boxes over the subjects, then click <strong>Add bokeh segment</strong>.</p>
+
+        <h3>2. Subject Boxes for This Segment</h3>
+        <ul id="bokeh-box-list" class="prompt-list" style="margin-bottom:14px;"></ul>
+
+        <h3>3. Bokeh Settings</h3>
+        <div class="fx-slider-row">
+          <label for="bokeh-blur">Blur strength</label>
+          <input id="bokeh-blur" type="range" min="5" max="65" step="2" value="25">
+          <span id="bokeh-blur-val">25</span>
+        </div>
+        <div class="fx-slider-row">
+          <label for="bokeh-feather">Edge feather</label>
+          <input id="bokeh-feather" type="range" min="0" max="40" step="2" value="12">
+          <span id="bokeh-feather-val">12</span>
+        </div>
+        <div class="field" style="margin-top:12px;">
+          <label for="bokeh-mode">Silhouette segmentation</label>
+          <select id="bokeh-mode">
+            <option value="auto" selected>AI Silhouette (U²-Net ONNX local CPU)</option>
+            <option value="grabcut">OpenCV GrabCut (offline fallback)</option>
+            <option value="feathered">Fast Feathered Oval (fastest)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="bokeh-every">Segment every N frames (higher = faster)</label>
+          <select id="bokeh-every">
+            <option value="1">Every frame (highest precision)</option>
+            <option value="2" selected>Every 2 frames (balanced)</option>
+            <option value="3">Every 3 frames (faster)</option>
+            <option value="5">Every 5 frames (fastest)</option>
+          </select>
+        </div>
+
+        <div class="crop-tools" style="margin-top:16px;">
+          <button id="bokeh-add-segment" class="primary" type="button">Add bokeh segment</button>
+          <button id="bokeh-clear" class="secondary" type="button">Clear boxes</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <main id="transform-page" hidden>
+    <div class="crop-header">
+      <h2>Spatial Crop, Rotate &amp; Flip</h2>
+      <button id="tf-back" class="secondary" type="button">Back</button>
+    </div>
+
+    <div class="crop-card">
+      <div class="folder-row">
+        <input id="tf-path" readonly placeholder="No video selected">
+        <button id="tf-select" class="primary" type="button">Select video</button>
+      </div>
+    </div>
+
+    <div id="tf-editor" class="fx-layout" hidden>
+      <div class="crop-card">
+        <div id="tf-stage">
+          <video id="tf-video" controls playsinline preload="metadata"></video>
+          <canvas id="tf-canvas"></canvas>
+        </div>
+        <div class="crop-tools" style="margin-top:10px;">
+          <button id="tf-play-toggle" class="secondary" type="button">Play / Pause</button>
+          <button id="tf-reset-crop" class="secondary" type="button">Full frame</button>
+          <span class="muted" style="font-size:13px;">Drag on the video frame to set the crop region.</span>
+        </div>
+      </div>
+
+      <div class="crop-card">
+        <h3 style="margin-top:0;">Spatial Crop (%)</h3>
+        <div class="fx-preset-group">
+          <button type="button" class="secondary tf-ratio" data-ratio="full">Full frame</button>
+          <button type="button" class="secondary tf-ratio" data-ratio="16:9">16:9</button>
+          <button type="button" class="secondary tf-ratio" data-ratio="9:16">9:16 Vertical</button>
+          <button type="button" class="secondary tf-ratio" data-ratio="1:1">1:1 Square</button>
+          <button type="button" class="secondary tf-ratio" data-ratio="4:3">4:3</button>
+        </div>
+        <div class="fx-range-row">
+          <label>Left % <input id="tf-x" type="number" min="0" max="98" step="1" value="0"></label>
+          <label>Top % <input id="tf-y" type="number" min="0" max="98" step="1" value="0"></label>
+        </div>
+        <div class="fx-range-row" style="margin-bottom:14px;">
+          <label>Width % <input id="tf-w" type="number" min="2" max="100" step="1" value="100"></label>
+          <label>Height % <input id="tf-h" type="number" min="2" max="100" step="1" value="100"></label>
+        </div>
+
+        <h3>Rotate</h3>
+        <div class="fx-preset-group" id="tf-rotations">
+          <button type="button" class="secondary tf-rot active" data-rot="0">0°</button>
+          <button type="button" class="secondary tf-rot" data-rot="90">90° CW</button>
+          <button type="button" class="secondary tf-rot" data-rot="180">180°</button>
+          <button type="button" class="secondary tf-rot" data-rot="270">270° CW</button>
+        </div>
+
+        <h3>Flip</h3>
+        <div class="crop-tools" style="margin-top:6px;">
+          <label><input id="tf-flip-h" type="checkbox"> Flip horizontal (mirror)</label>
+          <label><input id="tf-flip-v" type="checkbox"> Flip vertical</label>
+        </div>
+
+        <div class="crop-tools" style="margin-top:16px;">
+          <button id="tf-save" class="primary" type="button">Save as new video file</button>
+          <button id="tf-reset-all" class="secondary" type="button">Reset all</button>
+        </div>
+        <p id="tf-status" class="form-status"></p>
+        <p class="muted" style="font-size:12px;">Creates a new <code>_transformed_</code> MP4 in the same folder without overwriting.</p>
+      </div>
+    </div>
+  </main>
+
+  <main id="kenburns-page" hidden>
+    <div class="crop-header">
+      <h2>Ken Burns (Photo Pan &amp; Zoom)</h2>
+      <button id="kb-back" class="secondary" type="button">Back</button>
+    </div>
+
+    <div class="crop-card">
+      <div class="folder-row">
+        <input id="kb-path" readonly placeholder="No photo selected">
+        <button id="kb-select" class="primary" type="button">Select photo</button>
+      </div>
+    </div>
+
+    <div id="kb-editor" class="fx-layout" hidden>
+      <div class="crop-card">
+        <h3 style="margin-top:0;">Source Photo</h3>
+        <img id="kb-img" alt="Selected photo" style="width:100%; max-height:46vh; object-fit:contain; background:black; border-radius:10px; display:block;">
+        <div id="kb-result-wrap" hidden style="margin-top:16px;">
+          <h3>Generated Video Preview</h3>
+          <video id="kb-video" controls playsinline preload="metadata" style="width:100%; max-height:46vh;"></video>
+        </div>
+      </div>
+
+      <form id="kb-form" class="crop-card">
+        <h3 style="margin-top:0;">Video Settings</h3>
+        <div class="field">
+          <label for="kb-duration">Video length (seconds)</label>
+          <input id="kb-duration" type="number" min="1" max="120" step="0.5" value="8" required>
+        </div>
+        <div class="field">
+          <label for="kb-motion">Pan &amp; Zoom motion</label>
+          <select id="kb-motion">
+            <option value="zoom_in" selected>Slow Zoom In (center)</option>
+            <option value="zoom_out">Slow Zoom Out (center)</option>
+            <option value="pan_left_to_right">Pan Left → Right</option>
+            <option value="pan_right_to_left">Pan Right → Left</option>
+            <option value="pan_top_to_bottom">Pan Top → Bottom</option>
+            <option value="pan_bottom_to_top">Pan Bottom → Top</option>
+            <option value="zoom_in_top_right">Diagonal Zoom In (upper-right)</option>
+          </select>
+        </div>
+        <div class="fx-slider-row">
+          <label for="kb-zoom">Zoom amount</label>
+          <input id="kb-zoom" type="range" min="1.05" max="2.0" step="0.05" value="1.30">
+          <span id="kb-zoom-val">1.30×</span>
+        </div>
+        <div class="field" style="margin-top:12px;">
+          <label for="kb-resolution">Output resolution</label>
+          <select id="kb-resolution">
+            <option value="1280x720" selected>1280×720 (16:9 HD)</option>
+            <option value="1920x1080">1920×1080 (16:9 Full HD)</option>
+            <option value="1080x1920">1080×1920 (9:16 Vertical)</option>
+            <option value="1080x1080">1080×1080 (1:1 Square)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="kb-fps">Frame rate</label>
+          <select id="kb-fps">
+            <option value="30" selected>30 fps</option>
+            <option value="24">24 fps</option>
+          </select>
+        </div>
+
+        <div class="crop-tools" style="margin-top:16px;">
+          <button id="kb-generate" class="primary" type="submit">Generate video</button>
+        </div>
+        <p id="kb-status" class="form-status"></p>
+        <p class="muted" style="font-size:12px;">Creates a new <code>_kenburns_</code> MP4 in the same folder as the photo without overwriting.</p>
+      </form>
     </div>
   </main>
 
@@ -740,10 +1069,14 @@
       projectPage.hidden = true;
       document.getElementById("crop-page").hidden = true;
       document.getElementById("effects-page").hidden = true;
+      document.getElementById("bokeh-page").hidden = true;
+      document.getElementById("transform-page").hidden = true;
+      document.getElementById("kenburns-page").hidden = true;
       if (typeof fxState !== "undefined") cancelAnimationFrame(fxState.raf);
       firstPage.hidden = false;
       newProjectButton.hidden = true;
       loadProjects();
+      refreshScheduledJobs();
     }
     newProjectButton.onclick = showHome;
 
@@ -867,6 +1200,9 @@
       firstPage.hidden = true;
       projectPage.hidden = true;
       document.getElementById("effects-page").hidden = true;
+      document.getElementById("bokeh-page").hidden = true;
+      document.getElementById("transform-page").hidden = true;
+      document.getElementById("kenburns-page").hidden = true;
       cropPage.hidden = false;
       newProjectButton.hidden = false;
     }
@@ -935,7 +1271,7 @@
           const button = document.createElement("button");
           button.type = "button";
           button.className = "folder-option media-file";
-          button.textContent = `${mediaPickerKind === "video" ? "🎞" : "🎵"} ${file.name}  (${file.size_mb} MB)`;
+          button.textContent = `${mediaPickerKind === "video" ? "🎞" : (mediaPickerKind === "image" ? "🖼" : "🎵")} ${file.name}  (${file.size_mb} MB)`;
           button.onclick = () => {
             document.getElementById("media-modal").classList.remove("open");
             if (mediaPickerOnSelect) mediaPickerOnSelect(file.path);
@@ -1003,16 +1339,16 @@
       if (!cropState.removed.length) { cropSetStatus("Mark at least one part to remove."); return; }
       const button = document.getElementById("crop-save");
       button.disabled = true;
-      cropSetStatus("Saving new file...");
+      cropSetStatus("Queuing crop job...");
       try {
-        const response = await fetch("/api/media/crop", {
+        const response = await fetch("/api/media/crop?queued=true", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify({kind: cropState.kind, path: cropState.path, remove: cropState.removed})
         });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) { cropSetStatus(data.detail || "Unable to save the cropped file"); return; }
-        cropSetStatus(`Saved ${data.name} (${fmtTime(data.new_duration)}) in ${data.folder}`);
+        if (!response.ok) { cropSetStatus(data.detail || "Unable to queue crop job"); return; }
+        watchToolJob(data.id, document.getElementById("crop-status"), job => `Saved ${job.result.name} (${fmtTime(job.result.new_duration)}) in ${job.result.folder}`);
       } catch (error) {
         cropSetStatus("Unable to save the cropped file");
       } finally {
@@ -1028,11 +1364,22 @@
     const FX_COLORS = ["#e67e22", "#3498db", "#9b59b6", "#1abc9c", "#e74c3c", "#f1c40f"];
     const FX_NEUTRAL = {
       preset: "none", contrast: 1.0, saturation: 1.0, warmth: 0.0, white_balance: 0.0,
-      light_leaks: 0.0, film_grain: 0.0, scratches: 0.0, vhs: 0.0, glitch: 0.0, lens_flares: 0.0
+      light_leaks: 0.0, film_grain: 0.0, scratches: 0.0, vhs: 0.0, glitch: 0.0, lens_flares: 0.0,
+      speed: 1.0
+    };
+    const FX_TR_LABELS = {
+      fade_black: "Dip to Black",
+      fade_white: "Flash / Dip to White",
+      fade_in: "Fade In",
+      fade_out: "Fade Out",
+      blur_dissolve: "Blur Dissolve",
+      wipe_left: "Wipe Left",
+      wipe_right: "Wipe Right",
+      zoom_flash: "Zoom / Whip Flash"
     };
     const fxState = {
       path: "", preset: "none", raf: 0,
-      segments: [], editingIndex: -1,
+      segments: [], transitions: [], editingIndex: -1,
       projectId: null, projectName: ""
     };
 
@@ -1052,7 +1399,8 @@
         scratches: Number(document.getElementById("fx-scratches").value) / 100,
         vhs: Number(document.getElementById("fx-vhs").value) / 100,
         glitch: Number(document.getElementById("fx-glitch").value) / 100,
-        lens_flares: Number(document.getElementById("fx-lens-flares").value) / 100
+        lens_flares: Number(document.getElementById("fx-lens-flares").value) / 100,
+        speed: Number(document.getElementById("fx-speed").value)
       };
     }
 
@@ -1069,11 +1417,13 @@
       document.getElementById("fx-vhs").value = String(Math.round((v.vhs ?? 0) * 100));
       document.getElementById("fx-glitch").value = String(Math.round((v.glitch ?? 0) * 100));
       document.getElementById("fx-lens-flares").value = String(Math.round((v.lens_flares ?? 0) * 100));
+      document.getElementById("fx-speed").value = String(v.speed ?? 1.0);
       updateFxReadoutsAndFilter();
     }
 
     function summarizeFx(v) {
       const tags = [];
+      if (Math.abs((v.speed ?? 1) - 1) > 0.005) tags.push(`${Number(v.speed).toFixed(2)}× speed`);
       if (v.preset && v.preset !== "none") tags.push(v.preset);
       if (Math.abs((v.contrast ?? 1) - 1) > 0.005) tags.push(`contrast ${Number(v.contrast).toFixed(2)}`);
       if (Math.abs((v.saturation ?? 1) - 1) > 0.005) tags.push(`sat ${Number(v.saturation).toFixed(2)}`);
@@ -1133,6 +1483,7 @@
       document.getElementById("fx-vhs-val").textContent = `${Math.round(c.vhs * 100)}%`;
       document.getElementById("fx-glitch-val").textContent = `${Math.round(c.glitch * 100)}%`;
       document.getElementById("fx-lens-flares-val").textContent = `${Math.round(c.lens_flares * 100)}%`;
+      document.getElementById("fx-speed-val").textContent = `${c.speed.toFixed(2)}×`;
       drawFxOverlay();
     }
 
@@ -1140,6 +1491,8 @@
       const active = activePreviewSettings();
       const v = active.values;
       applyFxFilterToVideo(v);
+      const targetRate = Math.max(0.25, Math.min(4.0, Number(v.speed ?? 1.0)));
+      if (Math.abs(fxVideo.playbackRate - targetRate) > 0.01) fxVideo.playbackRate = targetRate;
 
       const dur = fxDuration();
       const cur = fxVideo.currentTime || 0;
@@ -1271,6 +1624,50 @@
           fxCtx.fillRect(gx, gy, 2, 2);
         }
       }
+
+      // Live preview for active transition at currentTime
+      const curT = fxVideo.currentTime || 0;
+      const activeTr = fxState.transitions.find(tr => curT >= tr.start && curT <= tr.end);
+      if (activeTr) {
+        const p = Math.max(0, Math.min(1, (curT - activeTr.start) / Math.max(0.01, activeTr.end - activeTr.start)));
+        const peak = 1 - Math.abs(2 * p - 1);
+        if (activeTr.type === "fade_black") {
+          fxCtx.fillStyle = `rgba(0,0,0,${peak.toFixed(3)})`;
+          fxCtx.fillRect(0, 0, w, h);
+        } else if (activeTr.type === "fade_white") {
+          fxCtx.fillStyle = `rgba(255,255,255,${peak.toFixed(3)})`;
+          fxCtx.fillRect(0, 0, w, h);
+        } else if (activeTr.type === "fade_in") {
+          fxCtx.fillStyle = `rgba(0,0,0,${(1 - p).toFixed(3)})`;
+          fxCtx.fillRect(0, 0, w, h);
+        } else if (activeTr.type === "fade_out") {
+          fxCtx.fillStyle = `rgba(0,0,0,${p.toFixed(3)})`;
+          fxCtx.fillRect(0, 0, w, h);
+        } else if (activeTr.type === "blur_dissolve") {
+          const baseFilter = fxVideo.style.filter === "none" ? "" : fxVideo.style.filter + " ";
+          fxVideo.style.filter = `${baseFilter}blur(${(peak * 10).toFixed(1)}px)`;
+        } else if (activeTr.type === "wipe_left") {
+          fxCtx.fillStyle = "#000";
+          if (p <= 0.5) {
+            const ww = w * (p * 2);
+            fxCtx.fillRect(w - ww, 0, ww, h);
+          } else {
+            const ww = w * (1 - (p - 0.5) * 2);
+            fxCtx.fillRect(0, 0, ww, h);
+          }
+        } else if (activeTr.type === "wipe_right") {
+          fxCtx.fillStyle = "#000";
+          if (p <= 0.5) {
+            fxCtx.fillRect(0, 0, w * (p * 2), h);
+          } else {
+            const xStart = w * ((p - 0.5) * 2);
+            fxCtx.fillRect(xStart, 0, w - xStart, h);
+          }
+        } else if (activeTr.type === "zoom_flash") {
+          fxCtx.fillStyle = `rgba(255,255,255,${(peak * 0.75).toFixed(3)})`;
+          fxCtx.fillRect(0, 0, w, h);
+        }
+      }
     }
 
     function startFxLoop() {
@@ -1346,7 +1743,59 @@
       if (!fxState.segments.length) {
         list.innerHTML = '<li class="muted">No timed segments added yet.</li>';
       }
+      renderFxTransitions();
       drawFxOverlay();
+    }
+
+    function renderFxTransitions() {
+      const list = document.getElementById("fx-transition-list");
+      const bar = document.getElementById("fx-bar");
+      const dur = fxDuration();
+      list.innerHTML = "";
+      bar.querySelectorAll(".fx-bar-tr").forEach(node => node.remove());
+
+      fxState.transitions.sort((a, b) => a.start - b.start);
+      fxState.transitions.forEach((tr, index) => {
+        const item = document.createElement("li");
+        item.className = "prompt-row";
+        item.style.borderLeft = "4px solid #ffd166";
+        item.innerHTML = `
+          <div class="prompt-row-head">
+            <strong></strong>
+            <span class="playlist-actions">
+              <button type="button" class="secondary fx-tr-goto">Go to</button>
+              <button type="button" class="danger fx-tr-del">Remove</button>
+            </span>
+          </div>
+          <div class="muted prompt-row-meta"></div>
+        `;
+        item.querySelector("strong").textContent = `${fmtTime(tr.start)} → ${fmtTime(tr.end)}`;
+        item.querySelector(".prompt-row-meta").textContent = FX_TR_LABELS[tr.type] || tr.type;
+        item.querySelector(".fx-tr-goto").onclick = () => { fxVideo.currentTime = tr.start; };
+        item.querySelector(".fx-tr-del").onclick = () => {
+          fxState.transitions.splice(index, 1);
+          renderFxTransitions();
+          drawFxOverlay();
+        };
+        list.appendChild(item);
+
+        if (dur > 0) {
+          const s = Math.max(0, Math.min(dur, tr.start));
+          const e = Math.max(s, Math.min(dur, tr.end));
+          if (e > s) {
+            const block = document.createElement("div");
+            block.className = "fx-bar-tr";
+            block.style.left = `${(s / dur) * 100}%`;
+            block.style.width = `${Math.max(0.8, ((e - s) / dur) * 100)}%`;
+            block.title = `Transition ${fmtTime(s)} → ${fmtTime(e)}: ${FX_TR_LABELS[tr.type] || tr.type}`;
+            bar.appendChild(block);
+          }
+        }
+      });
+
+      if (!fxState.transitions.length) {
+        list.innerHTML = '<li class="muted">No transitions added yet.</li>';
+      }
     }
 
     function cancelFxSegmentEdit() {
@@ -1390,12 +1839,14 @@
           chip.className = "fx-proj-chip" + (proj.id === fxState.projectId ? " active" : "");
           chip.innerHTML = `<button type="button" class="fx-proj-load"></button><button type="button" class="fx-proj-del" title="Delete project">✕</button>`;
           const count = (proj.segments || []).length;
+          const trCount = (proj.transitions || []).length;
           const fileName = proj.video_path ? proj.video_path.split(/[\\/]/).pop() : "no file";
-          chip.querySelector(".fx-proj-load").textContent = `${proj.name} (${count} seg · ${fileName})`;
+          chip.querySelector(".fx-proj-load").textContent = `${proj.name} (${count} seg${trCount ? `, ${trCount} tr` : ""} · ${fileName})`;
           chip.querySelector(".fx-proj-load").onclick = () => {
             fxState.projectId = proj.id;
             fxState.projectName = proj.name;
             fxState.segments = (proj.segments || []).map(seg => ({...FX_NEUTRAL, ...seg}));
+            fxState.transitions = (proj.transitions || []).map(tr => ({...tr}));
             cancelFxSegmentEdit();
             document.getElementById("fx-project-name").value = proj.name;
             document.getElementById("fx-project-status").textContent = `Loaded "${proj.name}". You can render it or select a new video file.`;
@@ -1431,7 +1882,7 @@
       if (!name) { status.textContent = "Enter an effects project name first."; return; }
       const segs = fxState.segments.length
         ? fxState.segments
-        : [{start: 0, end: null, ...getFxControlValues()}];
+        : (fxState.transitions.length ? [] : [{start: 0, end: null, ...getFxControlValues()}]);
       const isUpdate = !asNew && fxState.projectId !== null;
       const url = isUpdate ? `/api/effects-projects/${encodeURIComponent(fxState.projectId)}` : "/api/effects-projects";
       const method = isUpdate ? "PUT" : "POST";
@@ -1440,7 +1891,7 @@
         const response = await fetch(url, {
           method,
           headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({name, video_path: fxState.path, segments: segs})
+          body: JSON.stringify({name, video_path: fxState.path, segments: segs, transitions: fxState.transitions})
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) { status.textContent = data.detail || "Unable to save effects project"; return; }
@@ -1455,28 +1906,20 @@
     }
 
     function openVideoEffects() {
-      fxState.path = "";
-      fxState.segments = [];
-      fxState.projectId = null;
-      fxState.projectName = "";
-      document.getElementById("fx-project-name").value = "";
-      document.getElementById("fx-project-status").textContent = "";
-      document.getElementById("fx-path").value = "";
-      document.getElementById("fx-seg-start").value = "0:00";
-      document.getElementById("fx-seg-end").value = "";
-      document.getElementById("fx-editor").hidden = true;
-      fxVideo.pause();
-      fxVideo.removeAttribute("src");
-      fxVideo.load();
-      resetFxControls();
-      updateFxProjectButtons();
-      renderFxSegments();
       firstPage.hidden = true;
       projectPage.hidden = true;
       cropPage.hidden = true;
+      document.getElementById("bokeh-page").hidden = true;
+      document.getElementById("transform-page").hidden = true;
+      document.getElementById("kenburns-page").hidden = true;
       effectsPage.hidden = false;
       newProjectButton.hidden = false;
       loadEffectsProjects();
+      if (fxState.path) {
+        document.getElementById("fx-editor").hidden = false;
+        renderFxSegments();
+        startFxLoop();
+      }
     }
 
     function loadFxVideo(path, keepSegments = true) {
@@ -1504,6 +1947,37 @@
       fxState.segments = [];
       cancelFxSegmentEdit();
       renderFxSegments();
+    };
+    document.getElementById("fx-clear-transitions").onclick = () => {
+      fxState.transitions = [];
+      renderFxTransitions();
+      drawFxOverlay();
+    };
+    document.getElementById("fx-tr-start-here").onclick = () => {
+      document.getElementById("fx-tr-start").value = fmtTime(fxVideo.currentTime || 0);
+    };
+    document.getElementById("fx-tr-end-here").onclick = () => {
+      document.getElementById("fx-tr-end").value = fmtTime(fxVideo.currentTime || 0);
+    };
+    document.getElementById("fx-add-transition").onclick = () => {
+      const status = document.getElementById("fx-status");
+      const start = parseTime(document.getElementById("fx-tr-start").value);
+      const end = parseTime(document.getElementById("fx-tr-end").value);
+      const type = document.getElementById("fx-tr-type").value;
+      if (Number.isNaN(start) || start < 0) { status.textContent = "Enter a valid transition start time (e.g. 0:09 or 9)."; return; }
+      if (Number.isNaN(end) || end - start < 0.05) { status.textContent = "Transition end time must be at least 0.05s after start time."; return; }
+      for (const other of fxState.transitions) {
+        if (start < other.end - 0.01 && end > other.start + 0.01) {
+          status.textContent = `Overlaps with transition ${fmtTime(other.start)} → ${fmtTime(other.end)}.`;
+          return;
+        }
+      }
+      fxState.transitions.push({start, end, type});
+      document.getElementById("fx-tr-start").value = "";
+      document.getElementById("fx-tr-end").value = "";
+      status.textContent = "";
+      renderFxTransitions();
+      drawFxOverlay();
     };
     document.getElementById("fx-start-here").onclick = () => {
       document.getElementById("fx-seg-start").value = fmtTime(fxVideo.currentTime || 0);
@@ -1562,6 +2036,7 @@
       fxState.projectId = null;
       fxState.projectName = "";
       fxState.segments = [];
+      fxState.transitions = [];
       cancelFxSegmentEdit();
       document.getElementById("fx-project-name").value = "";
       document.getElementById("fx-project-status").textContent = "Started a new effects project.";
@@ -1577,8 +2052,14 @@
         updateFxReadoutsAndFilter();
       };
     });
+    document.querySelectorAll(".fx-speed-quick").forEach(btn => {
+      btn.onclick = () => {
+        document.getElementById("fx-speed").value = btn.dataset.speed;
+        updateFxReadoutsAndFilter();
+      };
+    });
     ["fx-contrast", "fx-saturation", "fx-warmth", "fx-white-balance",
-     "fx-light-leaks", "fx-film-grain", "fx-scratches", "fx-vhs", "fx-glitch", "fx-lens-flares"]
+     "fx-light-leaks", "fx-film-grain", "fx-scratches", "fx-vhs", "fx-glitch", "fx-lens-flares", "fx-speed"]
       .forEach(id => document.getElementById(id).addEventListener("input", updateFxReadoutsAndFilter));
 
     document.getElementById("fx-save").onclick = async () => {
@@ -1586,24 +2067,886 @@
       const button = document.getElementById("fx-save");
       const status = document.getElementById("fx-status");
       button.disabled = true;
-      status.textContent = "Rendering video effects with FFmpeg...";
+      status.textContent = "Queuing video effects job...";
       try {
-        const body = fxState.segments.length
-          ? {path: fxState.path, segments: fxState.segments}
-          : {path: fxState.path, ...getFxControlValues()};
-        const response = await fetch("/api/media/effects", {
+        const body = (fxState.segments.length || fxState.transitions.length)
+          ? {path: fxState.path, segments: fxState.segments, transitions: fxState.transitions}
+          : {path: fxState.path, ...getFxControlValues(), transitions: []};
+        const response = await fetch("/api/media/effects?queued=true", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
           body: JSON.stringify(body)
         });
         const data = await response.json().catch(() => ({}));
-        if (!response.ok) { status.textContent = data.detail || "Unable to apply video effects"; return; }
-        status.textContent = `Saved ${data.name} in ${data.folder}`;
+        if (!response.ok) { status.textContent = data.detail || "Unable to queue video effects"; return; }
+        watchToolJob(data.id, status, job => `Saved ${job.result.name} in ${job.result.folder}`);
       } catch (error) {
         status.textContent = "Unable to apply video effects";
       } finally {
         button.disabled = false;
       }
+    };
+
+    const bokehPage = document.getElementById("bokeh-page");
+    const bokehVideo = document.getElementById("bokeh-video");
+    const bokehCanvas = document.getElementById("bokeh-canvas");
+    const bokehCtx = bokehCanvas.getContext("2d");
+    const bokehState = {
+      path: "", boxes: [], segments: [],
+      projectId: null, projectName: "",
+      drawMode: true, dragging: false, startX: 0, startY: 0, curX: 0, curY: 0
+    };
+
+    function bokehDuration() {
+      return bokehVideo && isFinite(bokehVideo.duration) ? bokehVideo.duration : 0;
+    }
+
+    function syncBokehCanvasSize() {
+      const rect = bokehCanvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const w = Math.max(1, Math.round(rect.width));
+      const h = Math.max(1, Math.round(rect.height));
+      if (bokehCanvas.width !== w || bokehCanvas.height !== h) {
+        bokehCanvas.width = w;
+        bokehCanvas.height = h;
+      }
+      drawBokehBoxes();
+    }
+
+    function drawBokehBoxes() {
+      const vRect = bokehVideo.getBoundingClientRect();
+      const vw = vRect.width || bokehCanvas.width, vh = vRect.height || bokehCanvas.height;
+      bokehCtx.clearRect(0, 0, bokehCanvas.width, bokehCanvas.height);
+      bokehState.boxes.forEach((box, idx) => {
+        const bx = box.x * vw, by = box.y * vh, bw = box.w * vw, bh = box.h * vh;
+        bokehCtx.strokeStyle = "#ff4d36";
+        bokehCtx.lineWidth = 2.5;
+        bokehCtx.strokeRect(bx, by, bw, bh);
+        bokehCtx.fillStyle = "rgba(255, 77, 54, 0.14)";
+        bokehCtx.fillRect(bx, by, bw, bh);
+        bokehCtx.fillStyle = "#ff4d36";
+        const label = `Box ${idx + 1} (${fmtTime(box.time)})`;
+        bokehCtx.font = "bold 12px Arial";
+        const tw = bokehCtx.measureText(label).width + 10;
+        bokehCtx.fillRect(bx, Math.max(0, by - 20), tw, 20);
+        bokehCtx.fillStyle = "#ffffff";
+        bokehCtx.fillText(label, bx + 5, Math.max(14, by - 6));
+      });
+      if (bokehState.dragging) {
+        const x = Math.min(bokehState.startX, bokehState.curX);
+        const y = Math.min(bokehState.startY, bokehState.curY);
+        const rw = Math.abs(bokehState.curX - bokehState.startX);
+        const rh = Math.abs(bokehState.curY - bokehState.startY);
+        bokehCtx.strokeStyle = "#2ecc71";
+        bokehCtx.lineWidth = 2;
+        bokehCtx.setLineDash([6, 4]);
+        bokehCtx.strokeRect(x, y, rw, rh);
+        bokehCtx.setLineDash([]);
+      }
+    }
+
+    function renderBokehBoxList() {
+      const list = document.getElementById("bokeh-box-list");
+      list.innerHTML = "";
+      bokehState.boxes.forEach((box, idx) => {
+        const item = document.createElement("li");
+        item.className = "prompt-row";
+        item.innerHTML = `
+          <div class="prompt-row-head">
+            <strong></strong>
+            <span class="playlist-actions">
+              <button type="button" class="secondary bk-goto">Go to</button>
+              <button type="button" class="danger bk-del">Remove</button>
+            </span>
+          </div>
+          <div class="muted prompt-row-meta"></div>
+        `;
+        item.querySelector("strong").textContent = `Box ${idx + 1} @ ${fmtTime(box.time)}`;
+        item.querySelector(".prompt-row-meta").textContent = `x=${Math.round(box.x*100)}% y=${Math.round(box.y*100)}% · ${Math.round(box.w*100)}% × ${Math.round(box.h*100)}%`;
+        item.querySelector(".bk-goto").onclick = () => { bokehVideo.currentTime = box.time; };
+        item.querySelector(".bk-del").onclick = () => {
+          bokehState.boxes.splice(idx, 1);
+          renderBokehBoxList();
+          drawBokehBoxes();
+        };
+        list.appendChild(item);
+      });
+      if (!bokehState.boxes.length) {
+        list.innerHTML = '<li class="muted">No boxes drawn yet for this segment.</li>';
+      }
+    }
+
+    function renderBokehSegments() {
+      const list = document.getElementById("bokeh-segment-list");
+      const bar = document.getElementById("bokeh-bar");
+      const dur = bokehDuration();
+      list.innerHTML = "";
+      bar.querySelectorAll(".fx-bar-seg").forEach(n => n.remove());
+
+      bokehState.segments.sort((a, b) => a.start - b.start);
+      bokehState.segments.forEach((seg, idx) => {
+        const item = document.createElement("li");
+        item.className = "prompt-row";
+        item.style.borderLeft = "4px solid var(--accent)";
+        item.innerHTML = `
+          <div class="prompt-row-head">
+            <strong></strong>
+            <span class="playlist-actions">
+              ${seg.preview_stream_url ? '<button type="button" class="secondary bk-seg-play">Play preview</button>' : ''}
+              <button type="button" class="primary bk-seg-prev">${seg.preview_stream_url ? 'Re-render' : 'Preview'}</button>
+              <button type="button" class="secondary bk-seg-goto">Go to</button>
+              <button type="button" class="danger bk-seg-del">Remove</button>
+            </span>
+          </div>
+          <div class="muted prompt-row-meta"></div>
+          <div class="form-status bk-seg-status" style="font-size:12px; margin-top:4px;"></div>
+        `;
+        item.querySelector("strong").textContent = `${fmtTime(seg.start)} → ${fmtTime(seg.end)}`;
+        item.querySelector(".prompt-row-meta").textContent =
+          `${seg.boxes.length} box(es) · blur ${seg.blur_strength} · feather ${seg.edge_feather} · ${seg.segmentation_mode}`
+          + (seg.preview_path ? " · preview ready" : "");
+        const segStatus = item.querySelector(".bk-seg-status");
+
+        const playBtn = item.querySelector(".bk-seg-play");
+        if (playBtn) {
+          playBtn.onclick = () => showBokehSegmentPreview(seg, seg.preview_stream_url, "saved preview");
+        }
+        item.querySelector(".bk-seg-goto").onclick = () => { bokehVideo.pause(); bokehVideo.currentTime = seg.start; };
+        item.querySelector(".bk-seg-del").onclick = () => {
+          bokehState.segments.splice(idx, 1);
+          renderBokehSegments();
+        };
+        item.querySelector(".bk-seg-prev").onclick = async () => {
+          segStatus.textContent = "Queuing segment preview...";
+          try {
+            const response = await fetch("/api/media/bokeh/preview-segment?queued=true", {
+              method: "POST",
+              headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({
+                path: bokehState.path,
+                start: seg.start, end: seg.end, boxes: seg.boxes,
+                blur_strength: seg.blur_strength, edge_feather: seg.edge_feather,
+                segmentation_mode: seg.segmentation_mode, segment_every: seg.segment_every
+              })
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) { segStatus.textContent = data.detail || "Preview failed"; return; }
+            watchToolJob(data.id, segStatus, job => {
+              seg.preview_path = job.result.path;
+              seg.preview_stream_url = job.result.stream_url;
+              showBokehSegmentPreview(seg, job.result.stream_url, job.result.engine);
+              renderBokehSegments();
+              if (bokehState.projectId !== null) saveBokehProject(false, true);
+              return `Preview ready (${job.result.frames} frames, ${job.result.engine})`;
+            });
+          } catch (error) {
+            segStatus.textContent = "Preview failed";
+          }
+        };
+        list.appendChild(item);
+
+        if (dur > 0) {
+          const s = Math.max(0, Math.min(dur, seg.start));
+          const e = Math.max(s, Math.min(dur, seg.end));
+          if (e > s) {
+            const block = document.createElement("div");
+            block.className = "fx-bar-seg";
+            block.style.left = `${(s / dur) * 100}%`;
+            block.style.width = `${((e - s) / dur) * 100}%`;
+            block.style.background = "var(--accent)";
+            block.title = `Bokeh ${fmtTime(s)} → ${fmtTime(e)}`;
+            bar.appendChild(block);
+          }
+        }
+      });
+
+      if (!bokehState.segments.length) {
+        list.innerHTML = '<li class="muted">No bokeh segments added yet.</li>';
+      }
+    }
+
+    function setBokehDrawMode(enabled) {
+      bokehState.drawMode = enabled;
+      bokehCanvas.style.pointerEvents = enabled ? "auto" : "none";
+      bokehCanvas.style.cursor = enabled ? "crosshair" : "default";
+      const btn = document.getElementById("bokeh-draw-toggle");
+      btn.textContent = enabled ? "Draw box mode: ON" : "Draw box mode: OFF";
+      btn.className = enabled ? "primary" : "secondary";
+    }
+
+    function showBokehSegmentPreview(seg, streamUrl, label) {
+      const wrap = document.getElementById("bokeh-seg-preview-wrap");
+      const pv = document.getElementById("bokeh-seg-preview-video");
+      document.getElementById("bokeh-seg-preview-title").textContent =
+        `Segment Preview (${fmtTime(seg.start)} → ${fmtTime(seg.end)} · ${label})`;
+      wrap.hidden = false;
+      pv.src = streamUrl;
+      pv.load();
+    }
+
+    function updateBokehProjectButtons() {
+      const saveBtn = document.getElementById("bokeh-project-save");
+      const saveNewBtn = document.getElementById("bokeh-project-save-new");
+      if (bokehState.projectId !== null) {
+        saveBtn.textContent = "Update bokeh project";
+        saveNewBtn.hidden = false;
+      } else {
+        saveBtn.textContent = "Save bokeh project";
+        saveNewBtn.hidden = true;
+      }
+    }
+
+    async function loadBokehProjects() {
+      const container = document.getElementById("bokeh-saved-projects");
+      container.innerHTML = "";
+      try {
+        const response = await fetch("/api/bokeh-projects");
+        if (!response.ok) return;
+        const projects = await response.json();
+        if (!projects.length) {
+          container.innerHTML = '<span class="muted" style="font-size:13px;">No saved bokeh projects yet.</span>';
+          return;
+        }
+        projects.forEach(proj => {
+          const chip = document.createElement("div");
+          chip.className = "fx-proj-chip" + (proj.id === bokehState.projectId ? " active" : "");
+          chip.innerHTML = `<button type="button" class="fx-proj-load"></button><button type="button" class="fx-proj-del" title="Delete project">✕</button>`;
+          const count = (proj.segments || []).length;
+          const fileName = proj.video_path ? proj.video_path.split(/[\\/]/).pop() : "no file";
+          chip.querySelector(".fx-proj-load").textContent = `${proj.name} (${count} seg · ${fileName})`;
+          chip.querySelector(".fx-proj-load").onclick = () => {
+            bokehState.projectId = proj.id;
+            bokehState.projectName = proj.name;
+            bokehState.boxes = [];
+            bokehState.segments = (proj.segments || []).map(seg => ({...seg}));
+            document.getElementById("bokeh-project-name").value = proj.name;
+            document.getElementById("bokeh-project-status").textContent = `Loaded "${proj.name}".`;
+            updateBokehProjectButtons();
+            if (proj.video_path) {
+              loadBokehVideo(proj.video_path, true);
+            } else {
+              document.getElementById("bokeh-editor").hidden = false;
+              renderBokehBoxList();
+              renderBokehSegments();
+            }
+            const firstPrev = bokehState.segments.find(s => s.preview_stream_url);
+            if (firstPrev) showBokehSegmentPreview(firstPrev, firstPrev.preview_stream_url, "saved preview");
+            loadBokehProjects();
+          };
+          chip.querySelector(".fx-proj-del").onclick = async () => {
+            if (!confirm(`Delete bokeh project "${proj.name}"?`)) return;
+            await fetch(`/api/bokeh-projects/${encodeURIComponent(proj.id)}`, {method: "DELETE"});
+            if (bokehState.projectId === proj.id) {
+              bokehState.projectId = null;
+              bokehState.projectName = "";
+              document.getElementById("bokeh-project-name").value = "";
+              updateBokehProjectButtons();
+            }
+            document.getElementById("bokeh-project-status").textContent = `Deleted "${proj.name}"`;
+            await loadBokehProjects();
+          };
+          container.appendChild(chip);
+        });
+      } catch (error) { /* ignore */ }
+    }
+
+    async function saveBokehProject(asNew = false, silent = false) {
+      const name = document.getElementById("bokeh-project-name").value.trim();
+      const status = document.getElementById("bokeh-project-status");
+      if (!name) { if (!silent) status.textContent = "Enter a bokeh project name first."; return; }
+      const isUpdate = !asNew && bokehState.projectId !== null;
+      const url = isUpdate ? `/api/bokeh-projects/${encodeURIComponent(bokehState.projectId)}` : "/api/bokeh-projects";
+      const method = isUpdate ? "PUT" : "POST";
+      if (!silent) status.textContent = "Saving bokeh project...";
+      try {
+        const cleanSegs = bokehState.segments.map(({preview_stream_url, ...rest}) => rest);
+        const response = await fetch(url, {
+          method,
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({name, video_path: bokehState.path, segments: cleanSegs})
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) { if (!silent) status.textContent = data.detail || "Unable to save bokeh project"; return; }
+        bokehState.projectId = data.id;
+        bokehState.projectName = data.name;
+        updateBokehProjectButtons();
+        if (!silent) status.textContent = isUpdate ? `Updated "${data.name}"` : `Saved bokeh project "${data.name}"`;
+        await loadBokehProjects();
+      } catch (error) {
+        if (!silent) status.textContent = "Unable to save bokeh project";
+      }
+    }
+
+    function resetBokehWorkspace() {
+      bokehState.path = "";
+      bokehState.boxes = [];
+      bokehState.segments = [];
+      bokehState.projectId = null;
+      bokehState.projectName = "";
+      document.getElementById("bokeh-project-name").value = "";
+      document.getElementById("bokeh-project-status").textContent = "Started a new bokeh project.";
+      document.getElementById("bokeh-path").value = "";
+      document.getElementById("bokeh-seg-start").value = "0:00";
+      document.getElementById("bokeh-seg-end").value = "";
+      document.getElementById("bokeh-status").textContent = "";
+      document.getElementById("bokeh-editor").hidden = true;
+      document.getElementById("bokeh-seg-preview-wrap").hidden = true;
+      bokehVideo.pause();
+      bokehVideo.removeAttribute("src");
+      bokehVideo.load();
+      setBokehDrawMode(true);
+      updateBokehProjectButtons();
+      renderBokehBoxList();
+      renderBokehSegments();
+      loadBokehProjects();
+    }
+
+    function openBokehTool() {
+      firstPage.hidden = true;
+      projectPage.hidden = true;
+      cropPage.hidden = true;
+      effectsPage.hidden = true;
+      transformPage.hidden = true;
+      kenBurnsPage.hidden = true;
+      cancelAnimationFrame(fxState.raf);
+      bokehPage.hidden = false;
+      newProjectButton.hidden = false;
+      updateBokehProjectButtons();
+      loadBokehProjects();
+      if (bokehState.path) {
+        document.getElementById("bokeh-editor").hidden = false;
+        renderBokehBoxList();
+        renderBokehSegments();
+        setTimeout(syncBokehCanvasSize, 120);
+      }
+    }
+
+    function loadBokehVideo(path, keepSegments = true) {
+      bokehState.path = path;
+      if (!keepSegments) { bokehState.boxes = []; bokehState.segments = []; }
+      document.getElementById("bokeh-path").value = path;
+      document.getElementById("bokeh-status").textContent = "";
+      bokehVideo.src = `/api/media/stream?kind=video&path=${encodeURIComponent(path)}`;
+      bokehVideo.load();
+      document.getElementById("bokeh-editor").hidden = false;
+      setBokehDrawMode(true);
+      renderBokehBoxList();
+      renderBokehSegments();
+      setTimeout(syncBokehCanvasSize, 150);
+    }
+
+    bokehVideo.addEventListener("loadedmetadata", () => {
+      bokehVideo.currentTime = 0;
+      syncBokehCanvasSize();
+      renderBokehSegments();
+    });
+    bokehVideo.addEventListener("timeupdate", () => {
+      const dur = bokehDuration();
+      document.getElementById("bokeh-playhead").style.left = dur ? `${((bokehVideo.currentTime || 0) / dur) * 100}%` : "0";
+    });
+    window.addEventListener("resize", () => { if (!bokehPage.hidden) syncBokehCanvasSize(); });
+
+    bokehCanvas.addEventListener("mousedown", event => {
+      if (!bokehState.drawMode) return;
+      syncBokehCanvasSize();
+      const rect = bokehCanvas.getBoundingClientRect();
+      bokehState.dragging = true;
+      bokehState.startX = event.clientX - rect.left;
+      bokehState.startY = event.clientY - rect.top;
+      bokehState.curX = bokehState.startX;
+      bokehState.curY = bokehState.startY;
+      bokehVideo.pause();
+    });
+    bokehCanvas.addEventListener("mousemove", event => {
+      if (!bokehState.dragging) return;
+      const rect = bokehCanvas.getBoundingClientRect();
+      bokehState.curX = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+      bokehState.curY = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+      drawBokehBoxes();
+    });
+    window.addEventListener("mouseup", () => {
+      if (!bokehState.dragging) return;
+      bokehState.dragging = false;
+      const vRect = bokehVideo.getBoundingClientRect();
+      const vw = vRect.width || bokehCanvas.width, vh = vRect.height || bokehCanvas.height;
+      const x = Math.min(bokehState.startX, bokehState.curX);
+      const y = Math.min(bokehState.startY, bokehState.curY);
+      const rw = Math.abs(bokehState.curX - bokehState.startX);
+      const rh = Math.abs(bokehState.curY - bokehState.startY);
+      if (rw >= 12 && rh >= 12 && vw > 0 && vh > 0) {
+        bokehState.boxes.push({
+          x: x / vw, y: y / vh, w: rw / vw, h: rh / vh,
+          time: Number((bokehVideo.currentTime || 0).toFixed(2))
+        });
+        renderBokehBoxList();
+      }
+      drawBokehBoxes();
+    });
+
+    document.getElementById("bokeh-button").onclick = openBokehTool;
+    document.getElementById("bokeh-back").onclick = showHome;
+    document.getElementById("bokeh-project-save").onclick = () => saveBokehProject(false);
+    document.getElementById("bokeh-project-save-new").onclick = () => saveBokehProject(true);
+    document.getElementById("bokeh-project-new").onclick = resetBokehWorkspace;
+    document.getElementById("bokeh-select").onclick = () => {
+      openMediaPicker("video", "Select a video for Bokeh effect", path => loadBokehVideo(path, true));
+    };
+    document.getElementById("bokeh-play-toggle").onclick = () => {
+      if (bokehVideo.paused) bokehVideo.play(); else bokehVideo.pause();
+    };
+    document.getElementById("bokeh-draw-toggle").onclick = () => setBokehDrawMode(!bokehState.drawMode);
+    document.getElementById("bokeh-goto-start").onclick = () => { bokehVideo.pause(); bokehVideo.currentTime = 0; };
+    document.getElementById("bokeh-seg-preview-close").onclick = () => {
+      document.getElementById("bokeh-seg-preview-video").pause();
+      document.getElementById("bokeh-seg-preview-wrap").hidden = true;
+    };
+    document.getElementById("bokeh-start-here").onclick = () => {
+      document.getElementById("bokeh-seg-start").value = fmtTime(bokehVideo.currentTime || 0);
+    };
+    document.getElementById("bokeh-end-here").onclick = () => {
+      document.getElementById("bokeh-seg-end").value = fmtTime(bokehVideo.currentTime || 0);
+    };
+    document.getElementById("bokeh-bar").onclick = event => {
+      const dur = bokehDuration();
+      if (!dur) return;
+      const rect = event.currentTarget.getBoundingClientRect();
+      bokehVideo.currentTime = ((event.clientX - rect.left) / rect.width) * dur;
+    };
+    document.getElementById("bokeh-clear").onclick = () => {
+      bokehState.boxes = [];
+      renderBokehBoxList();
+      drawBokehBoxes();
+    };
+    document.getElementById("bokeh-clear-segments").onclick = () => {
+      bokehState.segments = [];
+      renderBokehSegments();
+    };
+    document.getElementById("bokeh-blur").addEventListener("input", e => {
+      document.getElementById("bokeh-blur-val").textContent = e.target.value;
+    });
+    document.getElementById("bokeh-feather").addEventListener("input", e => {
+      document.getElementById("bokeh-feather-val").textContent = e.target.value;
+    });
+
+    document.getElementById("bokeh-add-segment").onclick = () => {
+      const status = document.getElementById("bokeh-status");
+      const start = parseTime(document.getElementById("bokeh-seg-start").value);
+      const end = parseTime(document.getElementById("bokeh-seg-end").value);
+      if (Number.isNaN(start) || start < 0) { status.textContent = "Enter a valid segment start time (e.g. 0:05)."; return; }
+      if (Number.isNaN(end) || end - start < 0.1) { status.textContent = "Segment end time must be after start time."; return; }
+      if (!bokehState.boxes.length) { status.textContent = "Draw at least one bounding box on the video for this segment."; return; }
+      for (const other of bokehState.segments) {
+        if (start < other.end - 0.01 && end > other.start + 0.01) {
+          status.textContent = `Overlaps with segment ${fmtTime(other.start)} → ${fmtTime(other.end)}.`;
+          return;
+        }
+      }
+      bokehState.segments.push({
+        start, end,
+        boxes: bokehState.boxes.map(b => ({...b})),
+        blur_strength: Number(document.getElementById("bokeh-blur").value),
+        edge_feather: Number(document.getElementById("bokeh-feather").value),
+        segmentation_mode: document.getElementById("bokeh-mode").value,
+        segment_every: Number(document.getElementById("bokeh-every").value),
+        preview_path: ""
+      });
+      bokehState.boxes = [];
+      document.getElementById("bokeh-seg-start").value = fmtTime(end);
+      document.getElementById("bokeh-seg-end").value = "";
+      status.textContent = "";
+      renderBokehBoxList();
+      drawBokehBoxes();
+      renderBokehSegments();
+    };
+
+    document.getElementById("bokeh-save").onclick = async () => {
+      const status = document.getElementById("bokeh-status");
+      if (!bokehState.path) { status.textContent = "Select a video first."; return; }
+      if (!bokehState.segments.length) { status.textContent = "Add at least one bokeh segment first."; return; }
+      const button = document.getElementById("bokeh-save");
+      button.disabled = true;
+      status.textContent = "Queuing final segmented bokeh video...";
+      try {
+        const response = await fetch("/api/media/bokeh?queued=true", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({path: bokehState.path, segments: bokehState.segments})
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) { status.textContent = data.detail || "Unable to queue final bokeh video"; return; }
+        watchToolJob(data.id, status, job => `Saved ${job.result.name} (${job.result.segments} bokeh segment(s)) in ${job.result.folder}`);
+      } catch (error) {
+        status.textContent = "Unable to queue final bokeh video";
+      } finally {
+        button.disabled = false;
+      }
+    };
+
+    // ---- Spatial Crop, Rotate & Flip ----
+    const transformPage = document.getElementById("transform-page");
+    const tfVideo = document.getElementById("tf-video");
+    const tfCanvas = document.getElementById("tf-canvas");
+    const tfCtx = tfCanvas.getContext("2d");
+    const tfState = {path: "", x: 0, y: 0, w: 1, h: 1, rotate: 0, flipH: false, flipV: false, dragging: false, startX: 0, startY: 0, curX: 0, curY: 0};
+
+    function syncTfCanvas() {
+      const rect = tfCanvas.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const w = Math.max(1, Math.round(rect.width)), h = Math.max(1, Math.round(rect.height));
+      if (tfCanvas.width !== w || tfCanvas.height !== h) { tfCanvas.width = w; tfCanvas.height = h; }
+      drawTfCrop();
+    }
+
+    function updateTfPreviewTransform() {
+      const parts = [];
+      if (tfState.rotate) parts.push(`rotate(${tfState.rotate}deg)`);
+      if (tfState.flipH) parts.push("scaleX(-1)");
+      if (tfState.flipV) parts.push("scaleY(-1)");
+      tfVideo.style.transform = parts.join(" ") || "none";
+    }
+
+    function syncTfInputs() {
+      document.getElementById("tf-x").value = String(Math.round(tfState.x * 100));
+      document.getElementById("tf-y").value = String(Math.round(tfState.y * 100));
+      document.getElementById("tf-w").value = String(Math.round(tfState.w * 100));
+      document.getElementById("tf-h").value = String(Math.round(tfState.h * 100));
+      drawTfCrop();
+    }
+
+    function drawTfCrop() {
+      const vRect = tfVideo.getBoundingClientRect();
+      const vw = vRect.width || tfCanvas.width, vh = vRect.height || tfCanvas.height;
+      tfCtx.clearRect(0, 0, tfCanvas.width, tfCanvas.height);
+      const bx = tfState.x * vw, by = tfState.y * vh, bw = tfState.w * vw, bh = tfState.h * vh;
+      if (tfState.x > 0.002 || tfState.y > 0.002 || tfState.w < 0.998 || tfState.h < 0.998) {
+        tfCtx.fillStyle = "rgba(0,0,0,0.52)";
+        tfCtx.fillRect(0, 0, tfCanvas.width, tfCanvas.height);
+        tfCtx.clearRect(bx, by, bw, bh);
+        tfCtx.strokeStyle = "#ff4d36";
+        tfCtx.lineWidth = 2.5;
+        tfCtx.strokeRect(bx, by, bw, bh);
+      }
+      if (tfState.dragging) {
+        const x = Math.min(tfState.startX, tfState.curX);
+        const y = Math.min(tfState.startY, tfState.curY);
+        const rw = Math.abs(tfState.curX - tfState.startX);
+        const rh = Math.abs(tfState.curY - tfState.startY);
+        tfCtx.strokeStyle = "#2ecc71";
+        tfCtx.lineWidth = 2;
+        tfCtx.setLineDash([6, 4]);
+        tfCtx.strokeRect(x, y, rw, rh);
+        tfCtx.setLineDash([]);
+      }
+    }
+
+    function resetTfControls() {
+      tfState.x = 0; tfState.y = 0; tfState.w = 1; tfState.h = 1;
+      tfState.rotate = 0; tfState.flipH = false; tfState.flipV = false;
+      document.getElementById("tf-flip-h").checked = false;
+      document.getElementById("tf-flip-v").checked = false;
+      document.querySelectorAll(".tf-rot").forEach(b => b.classList.toggle("active", b.dataset.rot === "0"));
+      document.getElementById("tf-status").textContent = "";
+      updateTfPreviewTransform();
+      syncTfInputs();
+    }
+
+    function openTransformTool() {
+      tfState.path = "";
+      document.getElementById("tf-path").value = "";
+      document.getElementById("tf-editor").hidden = true;
+      tfVideo.pause();
+      tfVideo.removeAttribute("src");
+      tfVideo.load();
+      resetTfControls();
+      firstPage.hidden = true;
+      projectPage.hidden = true;
+      cropPage.hidden = true;
+      effectsPage.hidden = true;
+      bokehPage.hidden = true;
+      kenBurnsPage.hidden = true;
+      cancelAnimationFrame(fxState.raf);
+      transformPage.hidden = false;
+      newProjectButton.hidden = false;
+    }
+
+    function loadTfVideo(path) {
+      tfState.path = path;
+      document.getElementById("tf-path").value = path;
+      resetTfControls();
+      tfVideo.src = `/api/media/stream?kind=video&path=${encodeURIComponent(path)}`;
+      tfVideo.load();
+      document.getElementById("tf-editor").hidden = false;
+      setTimeout(syncTfCanvas, 150);
+    }
+
+    tfVideo.addEventListener("loadedmetadata", syncTfCanvas);
+    window.addEventListener("resize", () => { if (!transformPage.hidden) syncTfCanvas(); });
+
+    tfCanvas.addEventListener("mousedown", event => {
+      syncTfCanvas();
+      const rect = tfCanvas.getBoundingClientRect();
+      tfState.dragging = true;
+      tfState.startX = event.clientX - rect.left;
+      tfState.startY = event.clientY - rect.top;
+      tfState.curX = tfState.startX;
+      tfState.curY = tfState.startY;
+      tfVideo.pause();
+    });
+    tfCanvas.addEventListener("mousemove", event => {
+      if (!tfState.dragging) return;
+      const rect = tfCanvas.getBoundingClientRect();
+      tfState.curX = Math.max(0, Math.min(rect.width, event.clientX - rect.left));
+      tfState.curY = Math.max(0, Math.min(rect.height, event.clientY - rect.top));
+      drawTfCrop();
+    });
+    window.addEventListener("mouseup", () => {
+      if (!tfState.dragging) return;
+      tfState.dragging = false;
+      const vRect = tfVideo.getBoundingClientRect();
+      const vw = vRect.width || tfCanvas.width, vh = vRect.height || tfCanvas.height;
+      const x = Math.min(tfState.startX, tfState.curX);
+      const y = Math.min(tfState.startY, tfState.curY);
+      const rw = Math.abs(tfState.curX - tfState.startX);
+      const rh = Math.abs(tfState.curY - tfState.startY);
+      if (rw >= 12 && rh >= 12 && vw > 0 && vh > 0) {
+        tfState.x = Math.max(0, Math.min(0.98, x / vw));
+        tfState.y = Math.max(0, Math.min(0.98, y / vh));
+        tfState.w = Math.max(0.02, Math.min(1 - tfState.x, rw / vw));
+        tfState.h = Math.max(0.02, Math.min(1 - tfState.y, rh / vh));
+        syncTfInputs();
+      } else {
+        drawTfCrop();
+      }
+    });
+
+    ["tf-x", "tf-y", "tf-w", "tf-h"].forEach(id => {
+      document.getElementById(id).addEventListener("input", () => {
+        tfState.x = Math.max(0, Math.min(0.98, Number(document.getElementById("tf-x").value) / 100));
+        tfState.y = Math.max(0, Math.min(0.98, Number(document.getElementById("tf-y").value) / 100));
+        tfState.w = Math.max(0.02, Math.min(1 - tfState.x, Number(document.getElementById("tf-w").value) / 100));
+        tfState.h = Math.max(0.02, Math.min(1 - tfState.y, Number(document.getElementById("tf-h").value) / 100));
+        drawTfCrop();
+      });
+    });
+
+    document.querySelectorAll(".tf-ratio").forEach(btn => {
+      btn.onclick = () => {
+        const r = btn.dataset.ratio;
+        if (r === "full") { tfState.x = 0; tfState.y = 0; tfState.w = 1; tfState.h = 1; syncTfInputs(); return; }
+        const vw = tfVideo.videoWidth || 16, vh = tfVideo.videoHeight || 9;
+        const [rw, rh] = r.split(":").map(Number);
+        const targetAspect = rw / rh;
+        const srcAspect = vw / vh;
+        if (targetAspect < srcAspect) {
+          tfState.h = 1;
+          tfState.w = Math.min(1, targetAspect / srcAspect);
+        } else {
+          tfState.w = 1;
+          tfState.h = Math.min(1, srcAspect / targetAspect);
+        }
+        tfState.x = (1 - tfState.w) / 2;
+        tfState.y = (1 - tfState.h) / 2;
+        syncTfInputs();
+      };
+    });
+
+    document.querySelectorAll(".tf-rot").forEach(btn => {
+      btn.onclick = () => {
+        tfState.rotate = Number(btn.dataset.rot);
+        document.querySelectorAll(".tf-rot").forEach(b => b.classList.toggle("active", b === btn));
+        updateTfPreviewTransform();
+      };
+    });
+    document.getElementById("tf-flip-h").onchange = e => { tfState.flipH = e.target.checked; updateTfPreviewTransform(); };
+    document.getElementById("tf-flip-v").onchange = e => { tfState.flipV = e.target.checked; updateTfPreviewTransform(); };
+    document.getElementById("transform-button").onclick = openTransformTool;
+    document.getElementById("tf-back").onclick = showHome;
+    document.getElementById("tf-select").onclick = () => openMediaPicker("video", "Select a video to crop, rotate or flip", loadTfVideo);
+    document.getElementById("tf-play-toggle").onclick = () => { if (tfVideo.paused) tfVideo.play(); else tfVideo.pause(); };
+    document.getElementById("tf-reset-crop").onclick = () => { tfState.x = 0; tfState.y = 0; tfState.w = 1; tfState.h = 1; syncTfInputs(); };
+    document.getElementById("tf-reset-all").onclick = resetTfControls;
+    document.getElementById("tf-save").onclick = async () => {
+      const status = document.getElementById("tf-status");
+      if (!tfState.path) { status.textContent = "Select a video first."; return; }
+      const btn = document.getElementById("tf-save");
+      btn.disabled = true;
+      status.textContent = "Queuing transform job...";
+      try {
+        const response = await fetch("/api/media/transform?queued=true", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            path: tfState.path,
+            crop_x: tfState.x, crop_y: tfState.y, crop_w: tfState.w, crop_h: tfState.h,
+            rotate: tfState.rotate, flip_h: tfState.flipH, flip_v: tfState.flipV
+          })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) { status.textContent = data.detail || "Unable to queue transform job"; return; }
+        watchToolJob(data.id, status, job => `Saved ${job.result.name} in ${job.result.folder}`);
+      } catch (error) {
+        status.textContent = "Transform failed";
+      } finally {
+        btn.disabled = false;
+      }
+    };
+
+    // ---- Ken Burns (Photo Pan & Zoom) ----
+    const kenBurnsPage = document.getElementById("kenburns-page");
+    let kbPath = "";
+
+    function openKenBurnsTool() {
+      kbPath = "";
+      document.getElementById("kb-path").value = "";
+      document.getElementById("kb-status").textContent = "";
+      document.getElementById("kb-editor").hidden = true;
+      document.getElementById("kb-result-wrap").hidden = true;
+      const kbVid = document.getElementById("kb-video");
+      kbVid.pause(); kbVid.removeAttribute("src"); kbVid.load();
+      firstPage.hidden = true;
+      projectPage.hidden = true;
+      cropPage.hidden = true;
+      effectsPage.hidden = true;
+      bokehPage.hidden = true;
+      transformPage.hidden = true;
+      cancelAnimationFrame(fxState.raf);
+      kenBurnsPage.hidden = false;
+      newProjectButton.hidden = false;
+    }
+
+    function loadKenBurnsPhoto(path) {
+      kbPath = path;
+      document.getElementById("kb-path").value = path;
+      document.getElementById("kb-status").textContent = "";
+      document.getElementById("kb-result-wrap").hidden = true;
+      document.getElementById("kb-img").src = `/api/media/stream?kind=image&path=${encodeURIComponent(path)}`;
+      document.getElementById("kb-editor").hidden = false;
+    }
+
+    document.getElementById("kenburns-button").onclick = openKenBurnsTool;
+    document.getElementById("kb-back").onclick = showHome;
+    document.getElementById("kb-select").onclick = () => openMediaPicker("image", "Select a photo for Ken Burns", loadKenBurnsPhoto);
+    document.getElementById("kb-zoom").addEventListener("input", e => {
+      document.getElementById("kb-zoom-val").textContent = `${Number(e.target.value).toFixed(2)}×`;
+    });
+    document.getElementById("kb-form").onsubmit = async event => {
+      event.preventDefault();
+      const status = document.getElementById("kb-status");
+      if (!kbPath) { status.textContent = "Select a photo first."; return; }
+      const btn = document.getElementById("kb-generate");
+      btn.disabled = true;
+      status.textContent = "Queuing Ken Burns job...";
+      try {
+        const response = await fetch("/api/media/ken-burns?queued=true", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            path: kbPath,
+            duration_seconds: Number(document.getElementById("kb-duration").value),
+            motion: document.getElementById("kb-motion").value,
+            zoom_amount: Number(document.getElementById("kb-zoom").value),
+            resolution: document.getElementById("kb-resolution").value,
+            fps: Number(document.getElementById("kb-fps").value)
+          })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) { status.textContent = data.detail || "Unable to queue Ken Burns job"; return; }
+        watchToolJob(data.id, status, job => {
+          const kbVid = document.getElementById("kb-video");
+          document.getElementById("kb-result-wrap").hidden = false;
+          kbVid.src = job.result.stream_url;
+          kbVid.load();
+          return `Saved ${job.result.name} (${job.result.duration}s) in ${job.result.folder}`;
+        });
+      } catch (error) {
+        status.textContent = "Ken Burns generation failed";
+      } finally {
+        btn.disabled = false;
+      }
+    };
+
+    // ---- Scheduled Jobs FIFO Queue UI ----
+    const jobWatchers = new Map();
+    let jobPollTimer = null;
+
+    function watchToolJob(jobId, statusEl, formatDone) {
+      jobWatchers.set(jobId, {statusEl, formatDone});
+      statusEl.textContent = `Queued as Job #${jobId} (Pending). You can queue more tasks from Tools.`;
+      refreshScheduledJobs();
+    }
+
+    function renderScheduledJobs(jobs) {
+      const list = document.getElementById("scheduled-jobs-list");
+      list.innerHTML = "";
+      if (!jobs.length) {
+        list.innerHTML = '<li class="muted" style="font-size:13px;">No scheduled jobs.</li>';
+        return;
+      }
+      jobs.forEach(job => {
+        const item = document.createElement("li");
+        item.className = "job-card";
+        const badgeText = job.status === "running"
+          ? `${job.progress}%`
+          : (job.status === "pending" ? "Pending" : (job.status === "completed" ? "Done" : "Failed"));
+        item.innerHTML = `
+          <div class="job-card-top">
+            <span class="job-title"></span>
+            <span class="job-badge ${job.status}"></span>
+          </div>
+          <div class="job-file"></div>
+          ${job.status === "running" ? `<div class="job-progress-track"><div class="job-progress-fill" style="width:${job.progress}%"></div></div>` : ""}
+          <div class="job-detail muted"></div>
+        `;
+        item.querySelector(".job-title").textContent = `#${job.id} · ${job.tool}`;
+        item.querySelector(".job-badge").textContent = badgeText;
+        item.querySelector(".job-file").textContent = job.label;
+        const detail = item.querySelector(".job-detail");
+        if (job.status === "completed" && job.result && job.result.name) {
+          detail.textContent = `Saved: ${job.result.name}`;
+        } else if (job.status === "failed") {
+          detail.style.color = "#ffb4a9";
+          detail.textContent = job.error || "Failed";
+        } else if (job.status === "running") {
+          detail.textContent = `Running (${job.progress}% complete)`;
+        } else {
+          detail.textContent = "Waiting in FIFO queue";
+        }
+        list.appendChild(item);
+
+        const watcher = jobWatchers.get(job.id);
+        if (watcher) {
+          if (job.status === "pending") {
+            watcher.statusEl.textContent = `Job #${job.id}: Pending in queue...`;
+          } else if (job.status === "running") {
+            watcher.statusEl.textContent = `Job #${job.id}: Running (${job.progress}% complete)...`;
+          } else if (job.status === "completed") {
+            watcher.statusEl.textContent = watcher.formatDone(job);
+            jobWatchers.delete(job.id);
+          } else if (job.status === "failed") {
+            watcher.statusEl.textContent = `Job #${job.id} failed: ${job.error || "Unknown error"}`;
+            jobWatchers.delete(job.id);
+          }
+        }
+      });
+    }
+
+    async function refreshScheduledJobs() {
+      clearTimeout(jobPollTimer);
+      try {
+        const response = await fetch("/api/jobs");
+        if (!response.ok) return;
+        const jobs = await response.json();
+        renderScheduledJobs(jobs);
+        const hasActive = jobs.some(j => j.status === "pending" || j.status === "running");
+        if (hasActive || jobWatchers.size > 0) {
+          jobPollTimer = setTimeout(refreshScheduledJobs, 1200);
+        }
+      } catch (error) { /* ignore */ }
+    }
+
+    document.getElementById("clear-jobs-button").onclick = async () => {
+      await fetch("/api/jobs/finished", {method: "DELETE"});
+      refreshScheduledJobs();
     };
 
     async function loadCurrentUser() {
@@ -1620,6 +2963,7 @@
       window.location.href = "/login";
     };
     loadCurrentUser();
+    refreshScheduledJobs();
 
     const keyModal = document.getElementById("key-modal");
     const keyInput = document.getElementById("gemini-key-input");

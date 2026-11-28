@@ -48,6 +48,8 @@ video editor/
 | `fastapi` | `0.121.0` | REST API framework, static file serving, HTTP byte-range streaming |
 | `uvicorn` | `0.38.0` | ASGI server (imported and launched directly from `app.py`) |
 | `google-genai` | `1.52.0` | Google Gemini (prompt generation), Veo (video generation), and Lyria (music/audio generation) SDK |
+| `opencv-contrib-python-headless` | *(latest)* | Local CPU CSRT subject tracking, GrabCut fallback, and bokeh blur |
+| `onnxruntime` | *(latest)* | Local CPU U²-Net-p ONNX silhouette segmentation for Bokeh Effect |
 | `cryptography` | `46.0.3` | Fernet encryption of stored user names/usernames |
 | `pydantic` | *(installed with FastAPI)* | Request validation and structured JSON schemas for Gemini outputs |
 
@@ -190,7 +192,8 @@ Automatically created and migrated by `init_db()` on startup:
 | `audio_prompts` | Audio/music prompts (seeded with 1 default `lyria-3.5` prompt if empty) | `id`, `created_on`, `model`, `instructions`, `video_file`, `text_context` |
 | `app_users` | Registered users (encrypted) | `id`, `username_hash`, `username_enc`, `full_name_enc`, `password_hash`, `gemini_key_enc`, `created_at` |
 | `app_sessions` | Active login sessions | `token_hash`, `user_id`, `role`, `expires_at` |
-| `effects_projects` | Saved per-user timed Video Effects projects | `id`, `user_id`, `name`, `video_path`, `segments_json`, `created_at`, `updated_at` |
+| `effects_projects` | Saved per-user timed Video Effects projects | `id`, `user_id`, `name`, `video_path`, `segments_json`, `transitions_json`, `created_at`, `updated_at` |
+| `bokeh_projects` | Saved per-user segmented Bokeh projects (with cached preview paths) | `id`, `user_id`, `name`, `video_path`, `segments_json`, `created_at`, `updated_at` |
 | `video_prompts` | Per-scene video prompts grouped by series | `id`, `created_on`, `model`, `instructions`, `image_files`, `text_context`, `parts`, `scene_number`, `series_id` |
 
 ---
@@ -204,7 +207,7 @@ Automatically created and migrated by `init_db()` on startup:
 - **Video Prompts & Generation**: `GET /api/video-prompts`, `POST /api/video-prompts`, `PUT /api/video-prompts/{id}`, `DELETE /api/video-prompts/{id}`, `POST /api/generate-video-prompt`, `POST /api/projects/{id}/generate-video`
 - **Audio Prompts & Generation**: `GET /api/audio-prompts`, `POST /api/audio-prompts`, `PUT /api/audio-prompts/{id}`, `DELETE /api/audio-prompts/{id}`, `POST /api/projects/{id}/generate-audio-prompt`, `POST /api/projects/{id}/generate-music`
 - **Input / Flagged / Output Videos**: `GET /api/projects/{id}/videos`, `GET /api/projects/{id}/video/{filename}`, `POST /api/projects/{id}/flag`, `GET /api/projects/{id}/flagged`, `DELETE /api/projects/{id}/flagged/{filename}`, `POST /api/projects/{id}/combine`, `GET /api/projects/{id}/outputs`, `GET /api/projects/{id}/outputs/{filename}`, `DELETE /api/projects/{id}/outputs/{filename}`
-- **Crop Media**: `GET /api/media/browse`, `GET /api/media/info`, `GET /api/media/stream`, `POST /api/media/crop`, `POST /api/media/effects`, `GET|POST /api/effects-projects`, `PUT|DELETE /api/effects-projects/{id}`
+- **Crop Media**: `GET /api/media/browse`, `GET /api/media/info`, `GET /api/media/stream`, `POST /api/media/crop`, `POST /api/media/effects`, `POST /api/media/bokeh`, `POST /api/media/transform`, `POST /api/media/ken-burns` (all support `?queued=true` FIFO background execution), `GET /api/jobs`, `DELETE /api/jobs/finished`, `GET|POST /api/effects-projects`, `PUT|DELETE /api/effects-projects/{id}`
 - **Replace Audio**: `GET /api/projects/{id}/replace-audio/assets`, `POST /api/projects/{id}/replace-audio`, `GET /api/projects/{id}/replaced/{filename}`, `DELETE /api/projects/{id}/replaced/{filename}`, `GET /api/projects/{id}/source-audio/{filename}`, `GET /api/projects/{id}/source-output/{filename}`
 
 ---
