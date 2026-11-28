@@ -11,6 +11,8 @@
     header { height:66px; display:flex; align-items:center; justify-content:space-between; padding:0 24px; border-bottom:1px solid var(--line); background:#11141b; position:sticky; top:0; z-index:20; }
     header h1 { margin:0; font-size:22px; }
     .header-actions { display:flex; align-items:center; gap:8px; }
+    a.secondary { display:inline-block; border:1px solid #464d5c; border-radius:7px; padding:9px 12px; background:#242832; color:white; text-decoration:none; }
+    #user-label { color:#9da7b7; font-size:14px; }
     #key-modal { position:fixed; inset:0; z-index:100; display:none; place-items:center; background:rgba(0,0,0,.72); }
     #key-modal.open { display:grid; }
     #key-dialog { width:min(520px,calc(100% - 32px)); border:1px solid var(--line); border-radius:10px; background:#11141b; overflow:hidden; }
@@ -28,8 +30,46 @@
     .field { display:grid; gap:7px; margin-bottom:16px; }
     .field input, .field textarea { width:100%; border:1px solid #46505f; border-radius:7px; padding:11px; background:#0b0d12; color:white; }
     .field textarea { resize:vertical; line-height:1.45; min-height:140px; }
-    #project-list { display:flex; flex-wrap:wrap; gap:10px; margin-top:24px; }
-    .project-card { border:1px solid var(--line); border-radius:9px; padding:12px 14px; background:var(--panel); }
+    #first-page:not([hidden]) { display:grid; grid-template-columns:280px minmax(0,1fr) 220px; align-items:start; }
+    #crop-actions { min-height:calc(100vh - 66px); border-left:1px solid var(--line); background:#0f1117; padding:16px; display:flex; flex-direction:column; gap:10px; }
+    #crop-actions h3 { margin:0 0 4px; }
+    #crop-page:not([hidden]) { display:block; max-width:1000px; margin:0 auto; padding:24px; }
+    #effects-page:not([hidden]) { display:block; max-width:1240px; margin:0 auto; padding:24px; }
+    .fx-layout:not([hidden]) { display:grid; grid-template-columns:minmax(0,1.2fr) minmax(320px,0.8fr); gap:16px; align-items:start; }
+    #fx-stage { position:relative; width:100%; background:black; border-radius:10px; overflow:hidden; }
+    #fx-video { width:100%; max-height:62vh; display:block; }
+    #fx-overlay { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
+    .fx-preset-group { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:16px; }
+    .fx-preset.active { background:var(--accent); border-color:var(--accent); font-weight:700; }
+    .fx-slider-row { display:grid; grid-template-columns:120px minmax(0,1fr) 52px; gap:10px; align-items:center; margin-bottom:10px; font-size:14px; }
+    .fx-slider-row input[type=range] { width:100%; accent-color:var(--accent); padding:0; border:0; background:transparent; }
+    .fx-slider-row span { text-align:right; color:#9da7b7; font-variant-numeric:tabular-nums; }
+    .crop-header { display:flex; align-items:center; justify-content:space-between; }
+    .crop-header h2 { margin:0 0 12px; }
+    .crop-card { border:1px solid var(--line); border-radius:12px; padding:18px; background:#11141b; margin-bottom:16px; }
+    .crop-card input[readonly] { cursor:default; }
+    .crop-card input { border:1px solid #46505f; border-radius:7px; padding:10px; background:#0b0d12; color:white; }
+    #crop-player-wrap video { width:100%; max-height:56vh; }
+    #crop-player-wrap audio { width:100%; }
+    #crop-bar { position:relative; height:16px; margin:12px 0 4px; border-radius:8px; background:#2f7d4f; cursor:pointer; overflow:hidden; }
+    .crop-removed { position:absolute; top:0; bottom:0; background:#c0392b; }
+    #crop-playhead { position:absolute; top:0; bottom:0; width:2px; background:white; left:0; pointer-events:none; }
+    .crop-tools { display:flex; flex-wrap:wrap; gap:10px; align-items:center; margin:12px 0; }
+    .crop-tools label { display:flex; align-items:center; gap:6px; color:#9da7b7; }
+    .crop-tools input[type=text], .crop-tools input:not([type]) { width:150px; }
+    .crop-skip { margin-left:auto; }
+    #media-modal { position:fixed; inset:0; z-index:100; display:none; place-items:center; background:rgba(0,0,0,.72); }
+    #media-modal.open { display:grid; }
+    #media-dialog { width:min(720px,calc(100% - 32px)); max-height:80vh; display:grid; grid-template-rows:auto auto auto minmax(0,1fr) auto; border:1px solid var(--line); border-radius:10px; background:#11141b; }
+    #media-dialog-header { display:flex; align-items:center; justify-content:space-between; padding:14px 16px; border-bottom:1px solid var(--line); }
+    #media-drive-list { display:flex; gap:6px; padding:8px 16px; border-bottom:1px solid var(--line); overflow-x:auto; }
+    #media-current-path { padding:8px 16px; font-size:12px; word-break:break-all; }
+    #media-list { overflow-y:auto; padding:0 16px 8px; }
+    #media-dialog-footer { display:flex; justify-content:flex-end; padding:12px 16px; border-top:1px solid var(--line); }
+    #projects-sidebar { min-height:calc(100vh - 66px); border-right:1px solid var(--line); background:#0f1117; padding:16px; overflow-y:auto; }
+    #projects-sidebar h3 { margin:0 0 12px; }
+    #project-list { display:flex; flex-direction:column; gap:8px; }
+    .project-card { width:100%; text-align:left; color:white; cursor:pointer; border:1px solid var(--line); border-radius:9px; padding:12px 14px; background:var(--panel); }
     .tabs { height:48px; display:flex; align-items:end; gap:4px; border-bottom:1px solid var(--line); padding:0 16px; background:#11141b; }
     .tab { border:0; border-radius:7px 7px 0 0; padding:12px 16px; background:transparent; color:#bfc6d2; }
     .tab.active { background:var(--panel); color:white; border-bottom:2px solid var(--accent); }
@@ -111,6 +151,9 @@
     .replace-item.active { background:var(--panel); box-shadow:inset 3px 0 var(--accent); }
     @media(max-width:800px){
       main { grid-template-columns:1fr; }
+      #first-page:not([hidden]) { grid-template-columns:1fr; }
+      #crop-actions { min-height:0; border-left:0; border-top:1px solid var(--line); }
+      .fx-layout:not([hidden]) { grid-template-columns:1fr; }
       #videos-panel { grid-template-columns:290px minmax(0,1fr); }
     }
   </style>
@@ -137,12 +180,12 @@
             <button id="key-toggle-visibility" class="secondary" type="button">Show</button>
           </div>
         </div>
-        <p class="muted" style="font-size:12px; margin-bottom:6px;">Stored in server process memory only (not saved to SQLite).</p>
+        <p class="muted" style="font-size:12px; margin-bottom:6px;">Stored encrypted in the database for your account only. Save again to change it; Clear removes it.</p>
         <p id="key-save-status" class="form-status" style="margin:0;"></p>
       </div>
       <div id="key-dialog-footer">
         <button id="key-clear" class="danger" type="button">Clear</button>
-        <button id="key-save" class="primary" type="submit">Save key</button>
+        <button id="key-save" class="primary" type="submit">Save / update key</button>
       </div>
     </form>
   </div>
@@ -150,12 +193,18 @@
   <header>
     <h1>Video Editing Tool</h1>
     <div class="header-actions">
-      <button id="edit-key-button" class="secondary" type="button">edit_key</button>
-      <button id="new-project-button" class="secondary" hidden>New project</button>
+      <span id="user-label"></span>
+      <button id="edit-key-button" class="secondary" type="button">Manage Gemini Key</button>
+      <button id="new-project-button" class="secondary" hidden>Home</button>
+      <button id="logout-button" class="secondary" type="button">Logout</button>
     </div>
   </header>
 
   <main id="first-page">
+    <aside id="projects-sidebar">
+      <h3>Existing projects</h3>
+      <div id="project-list"></div>
+    </aside>
     <form id="project-form">
       <h2>Create a video project</h2>
       <div class="field"><label>Project name</label><input id="project-name" required></div>
@@ -164,10 +213,164 @@
       <div class="field"><label>Output video folder</label><div class="folder-row"><input id="output-video-folder" required value="C:\\Users\\anish\\Documents\\mediaprocessing\\racingproject\\outputvideos"><button class="secondary browse-folder" type="button" data-target="output-video-folder" data-title="Select output video folder">Browse</button></div></div>
       <button class="primary" type="submit">Create project</button>
       <p id="project-status"></p>
-      <h3>Existing projects</h3>
-      <div id="project-list"></div>
     </form>
+    <aside id="crop-actions">
+      <h3>Tools</h3>
+      <button id="crop-video-button" class="primary" type="button">Crop Video</button>
+      <button id="crop-audio-button" class="primary" type="button">Crop Audio</button>
+      <button id="video-effects-button" class="primary" type="button">Video Effects</button>
+    </aside>
   </main>
+
+  <main id="crop-page" hidden>
+    <div class="crop-header">
+      <h2 id="crop-title">Crop</h2>
+      <button id="crop-back" class="secondary" type="button">Back</button>
+    </div>
+
+    <div class="crop-card">
+      <div class="folder-row">
+        <input id="crop-path" readonly placeholder="No media selected">
+        <button id="crop-select" class="primary" type="button">Select media</button>
+      </div>
+    </div>
+
+    <div id="crop-editor" class="crop-card" hidden>
+      <div id="crop-player-wrap"></div>
+      <div id="crop-bar" title="Click to seek. Red = removed, green = kept"><div id="crop-playhead"></div></div>
+      <p class="muted" id="crop-time-info"></p>
+
+      <div class="crop-tools">
+        <button id="crop-remove-start" class="secondary" type="button">Remove start → here</button>
+        <button id="crop-remove-end" class="secondary" type="button">Remove here → end</button>
+        <button id="crop-mark-start" class="secondary" type="button">Mark part start</button>
+        <button id="crop-mark-end" class="secondary" type="button">Mark part end &amp; remove</button>
+        <span id="crop-mark-info" class="muted"></span>
+      </div>
+      <div class="crop-tools">
+        <label>From <input id="crop-from" placeholder="0:00 or seconds"></label>
+        <label>To <input id="crop-to" placeholder="0:10 or seconds"></label>
+        <button id="crop-add-range" class="secondary" type="button">Add removed part</button>
+        <label class="crop-skip"><input id="crop-skip" type="checkbox" checked> Skip removed parts when previewing</label>
+      </div>
+
+      <h3>Parts to remove</h3>
+      <ul id="crop-ranges" class="prompt-list"></ul>
+
+      <div class="crop-tools">
+        <button id="crop-save" class="primary" type="button">Save as new file</button>
+        <button id="crop-clear" class="secondary" type="button">Clear all</button>
+      </div>
+      <p id="crop-status" class="form-status"></p>
+      <p class="muted" style="font-size:12px;">Saving never overwrites: a new file named <code>&lt;original&gt;_cropped_&lt;id&gt;</code> is created in the same folder as the original.</p>
+    </div>
+  </main>
+
+  <main id="effects-page" hidden>
+    <div class="crop-header">
+      <h2>Video Effects</h2>
+      <button id="fx-back" class="secondary" type="button">Back</button>
+    </div>
+
+    <div class="crop-card">
+      <div class="folder-row">
+        <input id="fx-path" readonly placeholder="No video selected">
+        <button id="fx-select" class="primary" type="button">Select video</button>
+      </div>
+    </div>
+
+    <div id="fx-editor" class="fx-layout" hidden>
+      <div class="crop-card fx-preview-card">
+        <div id="fx-stage">
+          <video id="fx-video" controls playsinline preload="metadata"></video>
+          <canvas id="fx-overlay"></canvas>
+        </div>
+        <p class="muted" style="font-size:12px; margin-bottom:0;">Live preview approximates presets, color grading, and textures. Saving renders the full video with FFmpeg into a new file in the same folder.</p>
+      </div>
+
+      <div class="crop-card fx-controls-card">
+        <h3 style="margin-top:0;">Presets</h3>
+        <div id="fx-presets" class="fx-preset-group">
+          <button type="button" class="secondary fx-preset active" data-preset="none">None</button>
+          <button type="button" class="secondary fx-preset" data-preset="grayscale">Grayscale</button>
+          <button type="button" class="secondary fx-preset" data-preset="sepia">Sepia</button>
+          <button type="button" class="secondary fx-preset" data-preset="retro">Retro</button>
+          <button type="button" class="secondary fx-preset" data-preset="film">Film</button>
+        </div>
+
+        <h3>Color Grading</h3>
+        <div class="fx-slider-row">
+          <label for="fx-contrast">Contrast</label>
+          <input id="fx-contrast" type="range" min="0.5" max="2.0" step="0.05" value="1.0">
+          <span id="fx-contrast-val">1.00</span>
+        </div>
+        <div class="fx-slider-row">
+          <label for="fx-saturation">Saturation</label>
+          <input id="fx-saturation" type="range" min="0.0" max="2.0" step="0.05" value="1.0">
+          <span id="fx-saturation-val">1.00</span>
+        </div>
+        <div class="fx-slider-row">
+          <label for="fx-warmth">Warmth</label>
+          <input id="fx-warmth" type="range" min="-1.0" max="1.0" step="0.05" value="0.0">
+          <span id="fx-warmth-val">0.00</span>
+        </div>
+        <div class="fx-slider-row">
+          <label for="fx-white-balance">White balance</label>
+          <input id="fx-white-balance" type="range" min="-1.0" max="1.0" step="0.05" value="0.0">
+          <span id="fx-white-balance-val">0.00</span>
+        </div>
+
+        <h3>Vintage &amp; Stylized Textures</h3>
+        <div class="fx-slider-row">
+          <label for="fx-light-leaks">Light leaks</label>
+          <input id="fx-light-leaks" type="range" min="0" max="100" step="5" value="0">
+          <span id="fx-light-leaks-val">0%</span>
+        </div>
+        <div class="fx-slider-row">
+          <label for="fx-film-grain">Film grain</label>
+          <input id="fx-film-grain" type="range" min="0" max="100" step="5" value="0">
+          <span id="fx-film-grain-val">0%</span>
+        </div>
+        <div class="fx-slider-row">
+          <label for="fx-scratches">Scratches</label>
+          <input id="fx-scratches" type="range" min="0" max="100" step="5" value="0">
+          <span id="fx-scratches-val">0%</span>
+        </div>
+        <div class="fx-slider-row">
+          <label for="fx-vhs">VHS distortion</label>
+          <input id="fx-vhs" type="range" min="0" max="100" step="5" value="0">
+          <span id="fx-vhs-val">0%</span>
+        </div>
+        <div class="fx-slider-row">
+          <label for="fx-glitch">Glitch</label>
+          <input id="fx-glitch" type="range" min="0" max="100" step="5" value="0">
+          <span id="fx-glitch-val">0%</span>
+        </div>
+        <div class="fx-slider-row">
+          <label for="fx-lens-flares">Lens flares</label>
+          <input id="fx-lens-flares" type="range" min="0" max="100" step="5" value="0">
+          <span id="fx-lens-flares-val">0%</span>
+        </div>
+
+        <div class="crop-tools" style="margin-top:16px;">
+          <button id="fx-save" class="primary" type="button">Save as new file</button>
+          <button id="fx-reset" class="secondary" type="button">Reset all</button>
+        </div>
+        <p id="fx-status" class="form-status"></p>
+      </div>
+    </div>
+  </main>
+
+  <div id="media-modal" role="dialog" aria-modal="true">
+    <div id="media-dialog">
+      <div id="media-dialog-header"><strong id="media-dialog-title">Select media</strong><button id="media-close" class="secondary" type="button">Close</button></div>
+      <div id="media-drive-list"></div>
+      <div id="media-current-path" class="muted"></div>
+      <div id="media-list"></div>
+      <div id="media-dialog-footer"><button id="media-parent" class="secondary" type="button">Parent folder</button></div>
+    </div>
+  </div>
+
 
   <main id="project-page" hidden>
     <div class="tabs">
@@ -430,6 +633,13 @@
   </main>
 
   <script>
+    const _nativeFetch = window.fetch.bind(window);
+    window.fetch = async (...args) => {
+      const response = await _nativeFetch(...args);
+      if (response.status === 401) window.location.href = "/login";
+      return response;
+    };
+
     const firstPage = document.getElementById("first-page");
     const projectPage = document.getElementById("project-page");
     const newProjectButton = document.getElementById("new-project-button");
@@ -473,10 +683,578 @@
     }
     document.getElementById("project-form").onsubmit = createProject;
 
-    newProjectButton.onclick = () => {
-      projectPage.hidden = true; firstPage.hidden = false; newProjectButton.hidden = true;
+    function showHome() {
+      document.querySelectorAll("video, audio").forEach(media => media.pause());
+      currentProject = null;
+      projectPage.hidden = true;
+      document.getElementById("crop-page").hidden = true;
+      document.getElementById("effects-page").hidden = true;
+      if (typeof fxState !== "undefined") cancelAnimationFrame(fxState.raf);
+      firstPage.hidden = false;
+      newProjectButton.hidden = true;
       loadProjects();
+    }
+    newProjectButton.onclick = showHome;
+
+    const cropPage = document.getElementById("crop-page");
+    const cropState = {kind: null, path: "", removed: [], markStart: null};
+    let cropMedia = null;
+    let mediaBrowsePath = "";
+    let mediaPickerKind = "video";
+    let mediaPickerOnSelect = null;
+
+    function openMediaPicker(kind, title, onSelect) {
+      mediaPickerKind = kind;
+      mediaPickerOnSelect = onSelect;
+      document.getElementById("media-dialog-title").textContent = title;
+      document.getElementById("media-modal").classList.add("open");
+      loadMediaFolder(mediaBrowsePath);
+    }
+
+    function fmtTime(t) {
+      if (!isFinite(t) || t < 0) t = 0;
+      const minutes = Math.floor(t / 60);
+      return `${minutes}:${(t - minutes * 60).toFixed(1).padStart(4, "0")}`;
+    }
+
+    function parseTime(text) {
+      text = (text || "").trim();
+      if (!text) return NaN;
+      if (text.includes(":")) {
+        const parts = text.split(":").map(Number);
+        if (parts.some(Number.isNaN)) return NaN;
+        return parts.reduce((total, part) => total * 60 + part, 0);
+      }
+      return Number(text);
+    }
+
+    function cropDuration() {
+      return cropMedia && isFinite(cropMedia.duration) ? cropMedia.duration : 0;
+    }
+
+    function mergeRanges(ranges, duration) {
+      const clean = ranges
+        .map(([s, e]) => [Math.max(0, s), Math.min(duration, e)])
+        .filter(([s, e]) => e - s > 0.01)
+        .sort((a, b) => a[0] - b[0]);
+      const merged = [];
+      for (const range of clean) {
+        const last = merged[merged.length - 1];
+        if (last && range[0] <= last[1]) last[1] = Math.max(last[1], range[1]);
+        else merged.push([...range]);
+      }
+      return merged;
+    }
+
+    function cropSetStatus(text) { document.getElementById("crop-status").textContent = text; }
+
+    function addRemovedRange(start, end) {
+      const duration = cropDuration();
+      if (!duration) { cropSetStatus("Select a media file first."); return; }
+      if (!(end > start)) { cropSetStatus("The end of a removed part must be after its start."); return; }
+      cropState.removed = mergeRanges([...cropState.removed, [start, end]], duration);
+      cropSetStatus("");
+      renderCropRanges();
+    }
+
+    function renderCropRanges() {
+      const duration = cropDuration();
+      const list = document.getElementById("crop-ranges");
+      const bar = document.getElementById("crop-bar");
+      list.innerHTML = "";
+      bar.querySelectorAll(".crop-removed").forEach(node => node.remove());
+
+      cropState.removed.forEach(([start, end], index) => {
+        const item = document.createElement("li");
+        item.className = "prompt-row";
+        item.innerHTML = '<div class="prompt-row-head"><span></span><span class="playlist-actions"><button type="button" class="secondary crop-goto">Go to</button><button type="button" class="danger crop-delete">Restore</button></span></div>';
+        item.querySelector("span").textContent = `${fmtTime(start)} → ${fmtTime(end)}  (${(end - start).toFixed(1)} s)`;
+        item.querySelector(".crop-goto").onclick = () => { if (cropMedia) cropMedia.currentTime = start; };
+        item.querySelector(".crop-delete").onclick = () => { cropState.removed.splice(index, 1); renderCropRanges(); };
+        list.appendChild(item);
+
+        if (duration) {
+          const block = document.createElement("div");
+          block.className = "crop-removed";
+          block.style.left = `${(start / duration) * 100}%`;
+          block.style.width = `${((end - start) / duration) * 100}%`;
+          bar.appendChild(block);
+        }
+      });
+      if (!cropState.removed.length) list.innerHTML = '<li class="muted">Nothing marked for removal yet.</li>';
+
+      const removedTotal = cropState.removed.reduce((sum, [s, e]) => sum + (e - s), 0);
+      document.getElementById("crop-time-info").textContent = duration
+        ? `Original ${fmtTime(duration)} · removing ${fmtTime(removedTotal)} · result ${fmtTime(Math.max(0, duration - removedTotal))}`
+        : "";
+    }
+
+    function updateCropPlayhead() {
+      const duration = cropDuration();
+      document.getElementById("crop-playhead").style.left = duration ? `${(cropMedia.currentTime / duration) * 100}%` : "0";
+      if (!duration || !document.getElementById("crop-skip").checked || cropMedia.paused) return;
+      const t = cropMedia.currentTime;
+      const hit = cropState.removed.find(([s, e]) => t >= s && t < e);
+      if (hit) {
+        if (hit[1] >= duration - 0.05) { cropMedia.pause(); cropMedia.currentTime = hit[0]; }
+        else cropMedia.currentTime = hit[1];
+      }
+    }
+
+    function openCrop(kind) {
+      cropState.kind = kind;
+      cropState.path = "";
+      cropState.removed = [];
+      cropState.markStart = null;
+      cropMedia = null;
+      document.getElementById("crop-title").textContent = kind === "video" ? "Crop video" : "Crop audio";
+      document.getElementById("crop-path").value = "";
+      document.getElementById("crop-editor").hidden = true;
+      document.getElementById("crop-player-wrap").innerHTML = "";
+      document.getElementById("crop-mark-info").textContent = "";
+      cropSetStatus("");
+      firstPage.hidden = true;
+      projectPage.hidden = true;
+      document.getElementById("effects-page").hidden = true;
+      cropPage.hidden = false;
+      newProjectButton.hidden = false;
+    }
+
+    function loadCropMedia(path) {
+      cropState.path = path;
+      cropState.removed = [];
+      cropState.markStart = null;
+      document.getElementById("crop-path").value = path;
+      document.getElementById("crop-mark-info").textContent = "";
+      cropSetStatus("");
+
+      const wrap = document.getElementById("crop-player-wrap");
+      wrap.innerHTML = "";
+      const media = document.createElement(cropState.kind === "video" ? "video" : "audio");
+      media.controls = true;
+      media.preload = "metadata";
+      media.src = `/api/media/stream?kind=${cropState.kind}&path=${encodeURIComponent(path)}`;
+      media.addEventListener("loadedmetadata", () => {
+        renderCropRanges();
+        document.getElementById("crop-editor").hidden = false;
+      });
+      media.addEventListener("timeupdate", updateCropPlayhead);
+      media.addEventListener("error", () => cropSetStatus("This file cannot be played in the browser, but it may still be croppable."));
+      wrap.appendChild(media);
+      cropMedia = media;
+      document.getElementById("crop-editor").hidden = false;
+      renderCropRanges();
+    }
+
+    async function loadMediaFolder(path) {
+      const params = new URLSearchParams({kind: mediaPickerKind});
+      if (path) params.set("path", path);
+      const list = document.getElementById("media-list");
+      list.innerHTML = '<p class="muted">Loading...</p>';
+      try {
+        const response = await fetch(`/api/media/browse?${params.toString()}`);
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.detail || "Unable to browse folder");
+        mediaBrowsePath = data.current;
+        document.getElementById("media-current-path").textContent = data.current;
+        document.getElementById("media-parent").disabled = !data.parent;
+        document.getElementById("media-parent").dataset.path = data.parent;
+
+        const drives = document.getElementById("media-drive-list");
+        drives.innerHTML = "";
+        data.drives.forEach(drive => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "secondary";
+          button.textContent = drive.name;
+          button.onclick = () => loadMediaFolder(drive.path);
+          drives.appendChild(button);
+        });
+
+        list.innerHTML = "";
+        data.directories.forEach(directory => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "folder-option";
+          button.textContent = `📁 ${directory.name}`;
+          button.onclick = () => loadMediaFolder(directory.path);
+          list.appendChild(button);
+        });
+        data.files.forEach(file => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = "folder-option media-file";
+          button.textContent = `${mediaPickerKind === "video" ? "🎞" : "🎵"} ${file.name}  (${file.size_mb} MB)`;
+          button.onclick = () => {
+            document.getElementById("media-modal").classList.remove("open");
+            if (mediaPickerOnSelect) mediaPickerOnSelect(file.path);
+          };
+          list.appendChild(button);
+        });
+        if (!data.directories.length && !data.files.length) list.innerHTML = '<p class="muted">No subfolders or supported files here.</p>';
+      } catch (error) {
+        list.innerHTML = "";
+        const message = document.createElement("p");
+        message.className = "muted";
+        message.textContent = error.message;
+        list.appendChild(message);
+      }
+    }
+
+    document.getElementById("crop-video-button").onclick = () => openCrop("video");
+    document.getElementById("crop-audio-button").onclick = () => openCrop("audio");
+    document.getElementById("crop-back").onclick = () => showHome();
+    document.getElementById("crop-select").onclick = () => {
+      openMediaPicker(cropState.kind, cropState.kind === "video" ? "Select a video" : "Select an audio file", loadCropMedia);
     };
+    document.getElementById("media-close").onclick = () => document.getElementById("media-modal").classList.remove("open");
+    document.getElementById("media-parent").onclick = event => {
+      const parent = event.target.dataset.path;
+      if (parent) loadMediaFolder(parent);
+    };
+
+    document.getElementById("crop-remove-start").onclick = () => {
+      if (!cropMedia) return;
+      addRemovedRange(0, cropMedia.currentTime);
+    };
+    document.getElementById("crop-remove-end").onclick = () => {
+      if (!cropMedia) return;
+      addRemovedRange(cropMedia.currentTime, cropDuration());
+    };
+    document.getElementById("crop-mark-start").onclick = () => {
+      if (!cropMedia) return;
+      cropState.markStart = cropMedia.currentTime;
+      document.getElementById("crop-mark-info").textContent = `Part starts at ${fmtTime(cropState.markStart)} - move the player and click "Mark part end & remove"`;
+    };
+    document.getElementById("crop-mark-end").onclick = () => {
+      if (!cropMedia) return;
+      if (cropState.markStart === null) { cropSetStatus('Click "Mark part start" first.'); return; }
+      addRemovedRange(cropState.markStart, cropMedia.currentTime);
+      cropState.markStart = null;
+      document.getElementById("crop-mark-info").textContent = "";
+    };
+    document.getElementById("crop-add-range").onclick = () => {
+      const from = parseTime(document.getElementById("crop-from").value);
+      const to = parseTime(document.getElementById("crop-to").value);
+      if (Number.isNaN(from) || Number.isNaN(to)) { cropSetStatus("Enter valid times such as 12.5 or 1:05."); return; }
+      addRemovedRange(from, to);
+    };
+    document.getElementById("crop-clear").onclick = () => { cropState.removed = []; renderCropRanges(); };
+    document.getElementById("crop-bar").onclick = event => {
+      const duration = cropDuration();
+      if (!duration) return;
+      const rect = event.currentTarget.getBoundingClientRect();
+      cropMedia.currentTime = ((event.clientX - rect.left) / rect.width) * duration;
+    };
+
+    document.getElementById("crop-save").onclick = async () => {
+      if (!cropState.path) { cropSetStatus("Select a media file first."); return; }
+      if (!cropState.removed.length) { cropSetStatus("Mark at least one part to remove."); return; }
+      const button = document.getElementById("crop-save");
+      button.disabled = true;
+      cropSetStatus("Saving new file...");
+      try {
+        const response = await fetch("/api/media/crop", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({kind: cropState.kind, path: cropState.path, remove: cropState.removed})
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) { cropSetStatus(data.detail || "Unable to save the cropped file"); return; }
+        cropSetStatus(`Saved ${data.name} (${fmtTime(data.new_duration)}) in ${data.folder}`);
+      } catch (error) {
+        cropSetStatus("Unable to save the cropped file");
+      } finally {
+        button.disabled = false;
+      }
+    };
+
+
+    const effectsPage = document.getElementById("effects-page");
+    const fxVideo = document.getElementById("fx-video");
+    const fxOverlay = document.getElementById("fx-overlay");
+    const fxCtx = fxOverlay.getContext("2d");
+    const fxState = {path: "", preset: "none", raf: 0};
+
+    function getFxValues() {
+      return {
+        preset: fxState.preset,
+        contrast: Number(document.getElementById("fx-contrast").value),
+        saturation: Number(document.getElementById("fx-saturation").value),
+        warmth: Number(document.getElementById("fx-warmth").value),
+        white_balance: Number(document.getElementById("fx-white-balance").value),
+        light_leaks: Number(document.getElementById("fx-light-leaks").value) / 100,
+        film_grain: Number(document.getElementById("fx-film-grain").value) / 100,
+        scratches: Number(document.getElementById("fx-scratches").value) / 100,
+        vhs: Number(document.getElementById("fx-vhs").value) / 100,
+        glitch: Number(document.getElementById("fx-glitch").value) / 100,
+        lens_flares: Number(document.getElementById("fx-lens-flares").value) / 100
+      };
+    }
+
+    function updateFxReadoutsAndFilter() {
+      const v = getFxValues();
+      document.getElementById("fx-contrast-val").textContent = v.contrast.toFixed(2);
+      document.getElementById("fx-saturation-val").textContent = v.saturation.toFixed(2);
+      document.getElementById("fx-warmth-val").textContent = v.warmth.toFixed(2);
+      document.getElementById("fx-white-balance-val").textContent = v.white_balance.toFixed(2);
+      document.getElementById("fx-light-leaks-val").textContent = `${Math.round(v.light_leaks * 100)}%`;
+      document.getElementById("fx-film-grain-val").textContent = `${Math.round(v.film_grain * 100)}%`;
+      document.getElementById("fx-scratches-val").textContent = `${Math.round(v.scratches * 100)}%`;
+      document.getElementById("fx-vhs-val").textContent = `${Math.round(v.vhs * 100)}%`;
+      document.getElementById("fx-glitch-val").textContent = `${Math.round(v.glitch * 100)}%`;
+      document.getElementById("fx-lens-flares-val").textContent = `${Math.round(v.lens_flares * 100)}%`;
+
+      const filters = [];
+      if (v.preset === "grayscale") filters.push("grayscale(1)");
+      else if (v.preset === "sepia") filters.push("sepia(1)");
+      else if (v.preset === "retro") filters.push("sepia(0.35)", "contrast(0.95)", "saturate(0.82)", "brightness(1.04)");
+      else if (v.preset === "film") filters.push("contrast(1.12)", "saturate(1.08)", "sepia(0.08)");
+
+      if (Math.abs(v.contrast - 1) > 0.005) filters.push(`contrast(${v.contrast.toFixed(2)})`);
+      if (Math.abs(v.saturation - 1) > 0.005) filters.push(`saturate(${v.saturation.toFixed(2)})`);
+      if (v.warmth > 0.005) filters.push(`sepia(${(v.warmth * 0.35).toFixed(2)})`);
+      if (v.warmth < -0.005) filters.push(`hue-rotate(${(v.warmth * 22).toFixed(1)}deg)`);
+      if (Math.abs(v.white_balance) > 0.005) filters.push(`hue-rotate(${(v.white_balance * 28).toFixed(1)}deg)`);
+      if (v.vhs > 0.005) filters.push(`blur(${(v.vhs * 0.8).toFixed(2)}px)`);
+
+      fxVideo.style.filter = filters.join(" ") || "none";
+      drawFxOverlay();
+    }
+
+    function drawFxOverlay() {
+      const rect = fxVideo.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      const w = Math.max(1, Math.round(rect.width));
+      const h = Math.max(1, Math.round(rect.height));
+      if (fxOverlay.width !== w || fxOverlay.height !== h) {
+        fxOverlay.width = w;
+        fxOverlay.height = h;
+      }
+      fxCtx.clearRect(0, 0, w, h);
+
+      const v = getFxValues();
+      const t = fxVideo.currentTime || performance.now() / 1000;
+
+      if (v.warmth !== 0 || v.white_balance !== 0) {
+        fxCtx.save();
+        if (v.warmth > 0) {
+          fxCtx.fillStyle = `rgba(255, 150, 60, ${(v.warmth * 0.14).toFixed(3)})`;
+          fxCtx.fillRect(0, 0, w, h);
+        } else if (v.warmth < 0) {
+          fxCtx.fillStyle = `rgba(70, 140, 255, ${(-v.warmth * 0.14).toFixed(3)})`;
+          fxCtx.fillRect(0, 0, w, h);
+        }
+        if (v.white_balance > 0) {
+          fxCtx.fillStyle = `rgba(80, 220, 110, ${(v.white_balance * 0.10).toFixed(3)})`;
+          fxCtx.fillRect(0, 0, w, h);
+        } else if (v.white_balance < 0) {
+          fxCtx.fillStyle = `rgba(220, 80, 200, ${(-v.white_balance * 0.10).toFixed(3)})`;
+          fxCtx.fillRect(0, 0, w, h);
+        }
+        fxCtx.restore();
+      }
+
+      if (v.preset === "retro" || v.preset === "film") {
+        const vig = fxCtx.createRadialGradient(w / 2, h / 2, w * 0.25, w / 2, h / 2, w * 0.72);
+        vig.addColorStop(0, "rgba(0,0,0,0)");
+        vig.addColorStop(1, v.preset === "retro" ? "rgba(20,10,0,0.42)" : "rgba(0,12,20,0.34)");
+        fxCtx.fillStyle = vig;
+        fxCtx.fillRect(0, 0, w, h);
+      }
+
+      if (v.light_leaks > 0) {
+        fxCtx.save();
+        fxCtx.globalCompositeOperation = "screen";
+        const lx = w * (0.08 + 0.07 * Math.sin(t * 0.9));
+        const g1 = fxCtx.createRadialGradient(lx, h * 0.45, 0, lx, h * 0.45, w * 0.42);
+        g1.addColorStop(0, `rgba(255, 130, 30, ${(0.72 * v.light_leaks).toFixed(2)})`);
+        g1.addColorStop(0.5, `rgba(255, 60, 110, ${(0.35 * v.light_leaks).toFixed(2)})`);
+        g1.addColorStop(1, "rgba(0,0,0,0)");
+        fxCtx.fillStyle = g1;
+        fxCtx.fillRect(0, 0, w, h);
+        const ly = h * (0.28 + 0.12 * Math.cos(t * 0.7));
+        const g2 = fxCtx.createRadialGradient(w * 0.94, ly, 0, w * 0.94, ly, w * 0.34);
+        g2.addColorStop(0, `rgba(255, 70, 140, ${(0.55 * v.light_leaks).toFixed(2)})`);
+        g2.addColorStop(1, "rgba(0,0,0,0)");
+        fxCtx.fillStyle = g2;
+        fxCtx.fillRect(0, 0, w, h);
+        fxCtx.restore();
+      }
+
+      if (v.lens_flares > 0) {
+        fxCtx.save();
+        fxCtx.globalCompositeOperation = "screen";
+        const fxX = w * (0.22 + 0.12 * Math.sin(t * 0.6));
+        const fxY = h * 0.22;
+        const sun = fxCtx.createRadialGradient(fxX, fxY, 0, fxX, fxY, w * 0.18);
+        sun.addColorStop(0, `rgba(255, 245, 215, ${(0.85 * v.lens_flares).toFixed(2)})`);
+        sun.addColorStop(0.4, `rgba(255, 200, 120, ${(0.35 * v.lens_flares).toFixed(2)})`);
+        sun.addColorStop(1, "rgba(0,0,0,0)");
+        fxCtx.fillStyle = sun;
+        fxCtx.fillRect(0, 0, w, h);
+        const streak = fxCtx.createLinearGradient(0, fxY, w, fxY);
+        streak.addColorStop(0, "rgba(0,0,0,0)");
+        streak.addColorStop(Math.max(0.05, Math.min(0.95, fxX / w)), `rgba(140, 220, 255, ${(0.55 * v.lens_flares).toFixed(2)})`);
+        streak.addColorStop(1, "rgba(0,0,0,0)");
+        fxCtx.fillStyle = streak;
+        fxCtx.fillRect(0, fxY - h * 0.025, w, h * 0.05);
+        const gx = w * (0.65 - 0.08 * Math.sin(t * 0.6));
+        const ghost = fxCtx.createRadialGradient(gx, h * 0.62, 0, gx, h * 0.62, w * 0.09);
+        ghost.addColorStop(0, `rgba(130, 210, 255, ${(0.45 * v.lens_flares).toFixed(2)})`);
+        ghost.addColorStop(1, "rgba(0,0,0,0)");
+        fxCtx.fillStyle = ghost;
+        fxCtx.fillRect(0, 0, w, h);
+        fxCtx.restore();
+      }
+
+      if (v.vhs > 0) {
+        fxCtx.fillStyle = `rgba(0, 0, 0, ${(0.28 * v.vhs).toFixed(2)})`;
+        for (let y = 0; y < h; y += 4) fxCtx.fillRect(0, y, w, 1);
+      }
+
+      if (v.scratches > 0) {
+        const sAlpha = Math.min(0.75, 0.25 + 0.45 * v.scratches);
+        const x1 = (Math.floor(t * 12) * 373 + 91) % w;
+        const x2 = (Math.floor(t * 9) * 521 + 211) % w;
+        if (Math.sin(t * 7.3) > -0.1) {
+          fxCtx.fillStyle = `rgba(255,255,255,${sAlpha.toFixed(2)})`;
+          fxCtx.fillRect(x1, 0, 1.5, h);
+        }
+        if (Math.cos(t * 11.1) > 0) {
+          fxCtx.fillStyle = `rgba(0,0,0,${sAlpha.toFixed(2)})`;
+          fxCtx.fillRect(x2, 0, 1, h);
+        }
+      }
+
+      if (v.glitch > 0) {
+        const gAlpha = Math.min(0.65, 0.20 + 0.40 * v.glitch);
+        if (Math.sin(t * 19.7) > 0.45) {
+          fxCtx.fillStyle = `rgba(0, 255, 255, ${gAlpha.toFixed(2)})`;
+          fxCtx.fillRect(0, (Math.floor(t * 14) * 197) % h, w, Math.max(4, h / 26));
+        }
+        if (Math.cos(t * 23.1) > 0.50) {
+          fxCtx.fillStyle = `rgba(255, 0, 255, ${gAlpha.toFixed(2)})`;
+          fxCtx.fillRect(0, (Math.floor(t * 11) * 311 + 53) % h, w, Math.max(3, h / 34));
+        }
+      }
+
+      if (v.film_grain > 0) {
+        const dots = Math.floor(220 * v.film_grain);
+        for (let i = 0; i < dots; i++) {
+          const gx = Math.random() * w;
+          const gy = Math.random() * h;
+          const bright = Math.random() > 0.5 ? 255 : 0;
+          fxCtx.fillStyle = `rgba(${bright},${bright},${bright},${(0.28 * v.film_grain).toFixed(2)})`;
+          fxCtx.fillRect(gx, gy, 2, 2);
+        }
+      }
+    }
+
+    function startFxLoop() {
+      cancelAnimationFrame(fxState.raf);
+      const tick = () => {
+        if (!effectsPage.hidden) {
+          drawFxOverlay();
+          fxState.raf = requestAnimationFrame(tick);
+        }
+      };
+      fxState.raf = requestAnimationFrame(tick);
+    }
+
+    function resetFxControls() {
+      fxState.preset = "none";
+      document.querySelectorAll(".fx-preset").forEach(btn => btn.classList.toggle("active", btn.dataset.preset === "none"));
+      document.getElementById("fx-contrast").value = "1.0";
+      document.getElementById("fx-saturation").value = "1.0";
+      document.getElementById("fx-warmth").value = "0.0";
+      document.getElementById("fx-white-balance").value = "0.0";
+      ["fx-light-leaks", "fx-film-grain", "fx-scratches", "fx-vhs", "fx-glitch", "fx-lens-flares"].forEach(id => {
+        document.getElementById(id).value = "0";
+      });
+      document.getElementById("fx-status").textContent = "";
+      updateFxReadoutsAndFilter();
+    }
+
+    function openVideoEffects() {
+      fxState.path = "";
+      document.getElementById("fx-path").value = "";
+      document.getElementById("fx-editor").hidden = true;
+      fxVideo.pause();
+      fxVideo.removeAttribute("src");
+      fxVideo.load();
+      resetFxControls();
+      firstPage.hidden = true;
+      projectPage.hidden = true;
+      cropPage.hidden = true;
+      effectsPage.hidden = false;
+      newProjectButton.hidden = false;
+    }
+
+    function loadFxVideo(path) {
+      fxState.path = path;
+      document.getElementById("fx-path").value = path;
+      document.getElementById("fx-status").textContent = "";
+      fxVideo.src = `/api/media/stream?kind=video&path=${encodeURIComponent(path)}`;
+      fxVideo.load();
+      document.getElementById("fx-editor").hidden = false;
+      updateFxReadoutsAndFilter();
+      startFxLoop();
+    }
+
+    document.getElementById("video-effects-button").onclick = openVideoEffects;
+    document.getElementById("fx-back").onclick = showHome;
+    document.getElementById("fx-select").onclick = () => {
+      openMediaPicker("video", "Select a video for effects", loadFxVideo);
+    };
+    document.getElementById("fx-reset").onclick = resetFxControls;
+    document.querySelectorAll(".fx-preset").forEach(btn => {
+      btn.onclick = () => {
+        fxState.preset = btn.dataset.preset;
+        document.querySelectorAll(".fx-preset").forEach(b => b.classList.toggle("active", b === btn));
+        updateFxReadoutsAndFilter();
+      };
+    });
+    ["fx-contrast", "fx-saturation", "fx-warmth", "fx-white-balance",
+     "fx-light-leaks", "fx-film-grain", "fx-scratches", "fx-vhs", "fx-glitch", "fx-lens-flares"]
+      .forEach(id => document.getElementById(id).addEventListener("input", updateFxReadoutsAndFilter));
+
+    document.getElementById("fx-save").onclick = async () => {
+      if (!fxState.path) { document.getElementById("fx-status").textContent = "Select a video first."; return; }
+      const button = document.getElementById("fx-save");
+      const status = document.getElementById("fx-status");
+      button.disabled = true;
+      status.textContent = "Rendering video effects with FFmpeg...";
+      try {
+        const response = await fetch("/api/media/effects", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({path: fxState.path, ...getFxValues()})
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) { status.textContent = data.detail || "Unable to apply video effects"; return; }
+        status.textContent = `Saved ${data.name} in ${data.folder}`;
+      } catch (error) {
+        status.textContent = "Unable to apply video effects";
+      } finally {
+        button.disabled = false;
+      }
+    };
+
+    async function loadCurrentUser() {
+      try {
+        const response = await fetch("/api/auth/me");
+        if (!response.ok) return;
+        const me = await response.json();
+        document.getElementById("user-label").textContent = `${me.name || me.username} (${me.role})`;
+      } catch (error) { /* ignore */ }
+    }
+
+    document.getElementById("logout-button").onclick = async () => {
+      await fetch("/api/auth/logout", {method: "POST"});
+      window.location.href = "/login";
+    };
+    loadCurrentUser();
 
     const keyModal = document.getElementById("key-modal");
     const keyInput = document.getElementById("gemini-key-input");

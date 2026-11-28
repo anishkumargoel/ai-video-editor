@@ -1,4 +1,10 @@
 from pathlib import Path
+import hashlib
+import math
+import hmac
+import re
+import secrets
+import time
 from urllib.parse import quote
 from datetime import datetime
 import base64
@@ -10,13 +16,33 @@ import os
 from pydantic import BaseModel, Field
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
+from cryptography.fernet import Fernet, InvalidToken
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
 STATIC_DIR = PROJECT_DIR / "static"
+ENV_FILE = PROJECT_DIR / ".env"
+
+
+def load_env_file():
+    """Load KEY=VALUE pairs from .env into os.environ (real environment variables win)."""
+    if not ENV_FILE.is_file():
+        return
+    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        os.environ.setdefault(key.strip(), value)
+
+
+load_env_file()
 DB_FILE = PROJECT_DIR / "video_editor.db"
 CHUNK_SIZE = 1024 * 1024
 
@@ -871,13 +897,13 @@ def create_audio_prompt(payload: AudioPromptCreate):
     return insert_audio_prompt(model, instructions, payload.video_file.strip(), payload.text_context.strip())
 
 
-def generate_timestamped_music_prompt(video_path: str, user_context: str, model_id: str) -> str:
+def generate_timestamped_music_prompt(video_path: str, user_context: str, model_id: str, api_key: str) -> str:
     """Upload a video, analyze scenes with user context, return a timestamped Lyria prompt."""
     import time
     from google import genai
     from google.genai import types
 
-    client = genai.Client()
+    client = genai.Client(api_key=api_key)
     video_file = client.files.upload(file=video_path)
     try:
         while video_file.state.name == "PROCESSING":
@@ -925,7 +951,7 @@ def clean_llm_prompt(text: str) -> str:
 
 
 @app.post("/api/projects/{project_id}/generate-audio-prompt")
-def generate_audio_prompt(project_id: int, payload: GenerateAudioPromptRequest):
+def generate_audio_prompt(project_id: int, payload: GenerateAudioPromptRequest, request: Request):
     resolve_project(project_id)
     model_id = payload.model_id.strip() or DEFAULT_PROMPT_LLM
     video_name = payload.video_name.strip()
@@ -942,15 +968,14 @@ def generate_audio_prompt(project_id: int, payload: GenerateAudioPromptRequest):
     if row is None or not Path(row["file_path"]).is_file():
         raise HTTPException(status_code=404, detail="Selected output video not found")
 
-    if not os.environ.get("GEMINI_API_KEY"):
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not set")
+    api_key = get_user_gemini_key(request)
     try:
         import google.genai  # noqa: F401
     except ImportError:
         raise HTTPException(status_code=500, detail="google-genai is not installed")
 
     try:
-        result = generate_timestamped_music_prompt(row["file_path"], text_context, model_id)
+        result = generate_timestamped_music_prompt(row["file_path"], text_context, model_id, api_key)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Prompt generation failed: {exc}") from exc
 
@@ -1012,8 +1037,7 @@ async def generate_music(project_id: int, request: Request):
     if row is None:
         raise HTTPException(status_code=404, detail="Audio prompt not found")
 
-    if not os.environ.get("GEMINI_API_KEY"):
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not set")
+    api_key = get_user_gemini_key(request)
 
     try:
         from google import genai
@@ -1031,7 +1055,7 @@ async def generate_music(project_id: int, request: Request):
         output_path = audio_folder / filename
 
     try:
-        client = genai.Client()
+        client = genai.Client(api_key=api_key)
         interaction = client.interactions.create(
             model=row["model"],
             input=row["instructions"],
@@ -1231,12 +1255,12 @@ def delete_video_prompt(prompt_id: int):
     return {"success": True, "id": prompt_id, "deleted": cursor.rowcount > 0}
 
 
-def generate_structured_video_prompts(images, user_prompt: str, parts: int, model_id: str) -> VideoSeriesScript:
+def generate_structured_video_prompts(images, user_prompt: str, parts: int, model_id: str, api_key: str) -> VideoSeriesScript:
     """Send optional reference images + user instructions to Gemini and return a validated scene script."""
     from google import genai
     from google.genai import types
 
-    client = genai.Client()
+    client = genai.Client(api_key=api_key)
     image_guidance = (
         "Reference image(s) are attached. Analyze them in extreme visual detail to lock in the exact visual medium, "
         "textures, outfits, colors, proportions, and character/subject appearances in 'master_style_and_characters'."
@@ -1308,7 +1332,7 @@ def format_video_scene(master_style: str, scene: ScenePrompt) -> str:
 
 
 @app.post("/api/generate-video-prompt")
-def generate_video_prompt(payload: GenerateVideoPromptRequest):
+def generate_video_prompt(payload: GenerateVideoPromptRequest, request: Request):
     model_id = payload.model_id.strip() or DEFAULT_VIDEO_PROMPT_LLM
     text_context = payload.text_context.strip()
     parts = payload.parts
@@ -1332,8 +1356,7 @@ def generate_video_prompt(payload: GenerateVideoPromptRequest):
             raise HTTPException(status_code=400, detail=f"{image.name} is empty or larger than 15 MB")
         images.append((data, image.mime_type))
 
-    if not os.environ.get("GEMINI_API_KEY"):
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not set")
+    api_key = get_user_gemini_key(request)
     try:
         import google.genai  # noqa: F401
     except ImportError:
@@ -1346,7 +1369,7 @@ def generate_video_prompt(payload: GenerateVideoPromptRequest):
     )
 
     try:
-        series = generate_structured_video_prompts(images, user_prompt, parts, model_id)
+        series = generate_structured_video_prompts(images, user_prompt, parts, model_id, api_key)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Prompt generation failed: {exc}") from exc
 
@@ -1390,13 +1413,14 @@ def generate_scene_video(
     reference_image: tuple[bytes, str] | None = None,
     aspect_ratio: str = "16:9",
     duration_seconds: int = 8,
+    api_key: str = "",
 ):
     """Generates a single video clip with synchronized audio using Google Veo."""
     import time
     from google import genai
     from google.genai import types
 
-    client = genai.Client()
+    client = genai.Client(api_key=api_key)
 
     image_input = None
     if reference_image is not None:
@@ -1430,7 +1454,7 @@ def generate_scene_video(
 
 
 @app.post("/api/projects/{project_id}/generate-video")
-def generate_project_video(project_id: int, payload: GenerateSceneVideoRequest):
+def generate_project_video(project_id: int, payload: GenerateSceneVideoRequest, request: Request):
     project = resolve_project(project_id)
 
     if payload.duration_seconds not in ALLOWED_VEO_DURATIONS:
@@ -1458,8 +1482,7 @@ def generate_project_video(project_id: int, payload: GenerateSceneVideoRequest):
             raise HTTPException(status_code=400, detail=f"{payload.image.name} is empty or larger than 15 MB")
         reference_image = (image_bytes, payload.image.mime_type)
 
-    if not os.environ.get("GEMINI_API_KEY"):
-        raise HTTPException(status_code=500, detail="GEMINI_API_KEY is not set")
+    api_key = get_user_gemini_key(request)
     try:
         import google.genai  # noqa: F401
     except ImportError:
@@ -1486,6 +1509,7 @@ def generate_project_video(project_id: int, payload: GenerateSceneVideoRequest):
             reference_image=reference_image,
             aspect_ratio=payload.aspect_ratio,
             duration_seconds=payload.duration_seconds,
+            api_key=api_key,
         )
     except Exception as exc:
         if output_path.exists() and output_path.stat().st_size == 0:
@@ -1517,25 +1541,866 @@ def mask_api_key(key: str) -> str:
     return f"{key[:4]}...{key[-4:]}"
 
 
+def get_user_gemini_key(request: Request) -> str:
+    """Return the logged-in user's decrypted Gemini API key or raise a helpful error."""
+    session = getattr(request.state, "session", None)
+    if session is None or session["role"] != "user":
+        raise HTTPException(status_code=403, detail="Only registered users can use Gemini features")
+    with db() as connection:
+        row = connection.execute(
+            "SELECT gemini_key_enc FROM app_users WHERE id = ?", (session["user_id"],)
+        ).fetchone()
+    key = decrypt_text(row["gemini_key_enc"]) if row and row["gemini_key_enc"] else ""
+    if not key:
+        raise HTTPException(status_code=400, detail="Add your Gemini API key with the Manage Gemini Key button first")
+    return key
+
+
+def _require_user_session(request: Request):
+    session = getattr(request.state, "session", None)
+    if session is None or session["role"] != "user":
+        raise HTTPException(status_code=403, detail="Only registered users can manage a Gemini key")
+    return session
+
+
 @app.get("/api/gemini-key")
-def get_gemini_key_status():
-    key = os.environ.get("GEMINI_API_KEY", "").strip()
+def get_gemini_key_status(request: Request):
+    session = _require_user_session(request)
+    with db() as connection:
+        row = connection.execute(
+            "SELECT gemini_key_enc FROM app_users WHERE id = ?", (session["user_id"],)
+        ).fetchone()
+    key = decrypt_text(row["gemini_key_enc"]) if row and row["gemini_key_enc"] else ""
     return {"configured": bool(key), "masked": mask_api_key(key)}
 
 
 @app.post("/api/gemini-key")
-def set_gemini_key(payload: GeminiKeyUpdate):
+@app.put("/api/gemini-key")
+def set_gemini_key(payload: GeminiKeyUpdate, request: Request):
+    session = _require_user_session(request)
     key = payload.api_key.strip()
     if not key:
-        raise HTTPException(status_code=400, detail="GEMINI_API_KEY cannot be empty")
-    os.environ["GEMINI_API_KEY"] = key
+        raise HTTPException(status_code=400, detail="Gemini API key cannot be empty")
+    with db() as connection:
+        connection.execute(
+            "UPDATE app_users SET gemini_key_enc = ? WHERE id = ?",
+            (encrypt_text(key), session["user_id"]),
+        )
     return {"configured": True, "masked": mask_api_key(key)}
 
 
 @app.delete("/api/gemini-key")
-def clear_gemini_key():
-    os.environ.pop("GEMINI_API_KEY", None)
+def clear_gemini_key(request: Request):
+    session = _require_user_session(request)
+    with db() as connection:
+        connection.execute("UPDATE app_users SET gemini_key_enc = '' WHERE id = ?", (session["user_id"],))
     return {"configured": False, "masked": ""}
+
+
+# ---------------------------------------------------------------------------
+# Crop media (remove parts from the start, end or middle of a video/audio file)
+# ---------------------------------------------------------------------------
+CROP_VIDEO_TYPES = {
+    ".mp4": "video/mp4", ".mov": "video/quicktime", ".mkv": "video/x-matroska",
+    ".webm": "video/webm", ".avi": "video/x-msvideo", ".m4v": "video/x-m4v",
+}
+CROP_AUDIO_TYPES = {
+    ".mp3": "audio/mpeg", ".wav": "audio/wav", ".m4a": "audio/mp4",
+    ".aac": "audio/aac", ".flac": "audio/flac", ".ogg": "audio/ogg",
+}
+MIN_KEEP_SECONDS = 0.05
+
+
+def crop_types(kind: str) -> dict:
+    if kind == "video":
+        return CROP_VIDEO_TYPES
+    if kind == "audio":
+        return CROP_AUDIO_TYPES
+    raise HTTPException(status_code=400, detail="Kind must be 'video' or 'audio'")
+
+
+def resolve_media_file(path: str, kind: str) -> Path:
+    types = crop_types(kind)
+    if not path:
+        raise HTTPException(status_code=400, detail="Select a media file")
+    file = Path(path)
+    if not file.is_file():
+        raise HTTPException(status_code=404, detail="Media file not found")
+    if file.suffix.lower() not in types:
+        raise HTTPException(status_code=400, detail=f"Unsupported {kind} file type '{file.suffix}'")
+    return file.resolve()
+
+
+def probe_media(ffmpeg: str, file: Path) -> dict:
+    """Read duration and stream info from `ffmpeg -i` output."""
+    result = subprocess.run([ffmpeg, "-hide_banner", "-i", str(file)], capture_output=True, text=True)
+    info = result.stderr or ""
+    match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", info)
+    duration = 0.0
+    if match:
+        duration = int(match.group(1)) * 3600 + int(match.group(2)) * 60 + float(match.group(3))
+    has_video = bool(re.search(r"Stream #\S+.*Video:", info)) and "attached pic" not in info
+    has_audio = bool(re.search(r"Stream #\S+.*Audio:", info))
+    return {"duration": duration, "has_video": has_video, "has_audio": has_audio}
+
+
+@app.get("/api/media/browse")
+def browse_media(kind: str, path: str = ""):
+    types = crop_types(kind)
+    current = Path(path) if path else Path.home()
+    if not current.exists() or not current.is_dir():
+        raise HTTPException(status_code=400, detail="Folder does not exist")
+
+    drives = []
+    if os.name == "nt":
+        import string
+        for letter in string.ascii_uppercase:
+            drive = Path(f"{letter}:\\")
+            if drive.exists():
+                drives.append({"name": f"{letter}:\\", "path": str(drive)})
+
+    directories, files = [], []
+    try:
+        for item in current.iterdir():
+            try:
+                if item.is_dir():
+                    directories.append({"name": item.name, "path": str(item.resolve())})
+                elif item.is_file() and item.suffix.lower() in types:
+                    files.append({
+                        "name": item.name,
+                        "path": str(item.resolve()),
+                        "size_mb": round(item.stat().st_size / (1024 * 1024), 2),
+                    })
+            except OSError:
+                continue
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Folder access is not allowed")
+    directories.sort(key=lambda entry: entry["name"].lower())
+    files.sort(key=lambda entry: entry["name"].lower())
+    parent = str(current.parent.resolve()) if current.parent != current else ""
+    return {"current": str(current.resolve()), "parent": parent, "drives": drives,
+            "directories": directories, "files": files}
+
+
+@app.get("/api/media/stream")
+def stream_media(kind: str, path: str, request: Request):
+    file = resolve_media_file(path, kind)
+    media_type = crop_types(kind)[file.suffix.lower()]
+    file_size = file.stat().st_size
+    start, end, status_code = 0, file_size - 1, 200
+
+    range_header = request.headers.get("range")
+    if range_header:
+        try:
+            range_value = range_header.strip().lower().replace("bytes=", "")
+            range_start, range_end = range_value.split("-", 1)
+            start = int(range_start) if range_start else max(file_size - int(range_end), 0)
+            end = int(range_end) if range_end and range_start else file_size - 1
+            end = min(end, file_size - 1)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid Range header")
+        if start > end or start >= file_size:
+            raise HTTPException(status_code=416, detail="Range not satisfiable",
+                                headers={"Content-Range": f"bytes */{file_size}"})
+        status_code = 206
+
+    def iter_file():
+        with file.open("rb") as handle:
+            handle.seek(start)
+            remaining = end - start + 1
+            while remaining:
+                chunk = handle.read(min(CHUNK_SIZE, remaining))
+                if not chunk:
+                    break
+                remaining -= len(chunk)
+                yield chunk
+
+    headers = {"Accept-Ranges": "bytes", "Content-Length": str(end - start + 1), "Content-Type": media_type}
+    if status_code == 206:
+        headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
+    return StreamingResponse(iter_file(), status_code=status_code, headers=headers, media_type=media_type)
+
+
+@app.get("/api/media/info")
+def media_info(kind: str, path: str):
+    file = resolve_media_file(path, kind)
+    ffmpeg = find_ffmpeg()
+    if not ffmpeg:
+        raise HTTPException(status_code=500, detail="FFmpeg was not found")
+    return {"name": file.name, **probe_media(ffmpeg, file)}
+
+
+class CropMediaRequest(BaseModel):
+    kind: str
+    path: str
+    remove: list[list[float]]
+
+
+@app.post("/api/media/crop")
+def crop_media(payload: CropMediaRequest):
+    file = resolve_media_file(payload.path, payload.kind)
+    ffmpeg = find_ffmpeg()
+    if not ffmpeg:
+        raise HTTPException(status_code=500, detail="FFmpeg was not found")
+
+    info = probe_media(ffmpeg, file)
+    duration = info["duration"]
+    if duration <= 0:
+        raise HTTPException(status_code=400, detail="Could not read the media duration")
+    if payload.kind == "video" and not info["has_video"]:
+        raise HTTPException(status_code=400, detail="The selected file has no video stream")
+    if payload.kind == "audio" and not info["has_audio"]:
+        raise HTTPException(status_code=400, detail="The selected file has no audio stream")
+
+    # Normalize removed ranges: validate, clamp to [0, duration], sort and merge overlaps.
+    ranges = []
+    for item in payload.remove:
+        if len(item) != 2 or not all(math.isfinite(value) for value in item):
+            raise HTTPException(status_code=400, detail="Each removed part needs a start and end time")
+        start, end = max(0.0, item[0]), min(duration, item[1])
+        if end > start:
+            ranges.append([start, end])
+    if not ranges:
+        raise HTTPException(status_code=400, detail="Mark at least one part to remove")
+    ranges.sort()
+    merged = [ranges[0]]
+    for start, end in ranges[1:]:
+        if start <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], end)
+        else:
+            merged.append([start, end])
+
+    keep, cursor = [], 0.0
+    for start, end in merged:
+        if start - cursor >= MIN_KEEP_SECONDS:
+            keep.append((cursor, start))
+        cursor = end
+    if duration - cursor >= MIN_KEEP_SECONDS:
+        keep.append((cursor, duration))
+    if not keep:
+        raise HTTPException(status_code=400, detail="Nothing would remain after removing those parts")
+
+    # Never overwrite: always create a new, unique file next to the original.
+    extension = ".mp4" if payload.kind == "video" else file.suffix.lower()
+    output_path = file.with_name(f"{file.stem}_cropped_{uuid.uuid4().hex[:8]}{extension}")
+    while output_path.exists():
+        output_path = file.with_name(f"{file.stem}_cropped_{uuid.uuid4().hex[:8]}{extension}")
+
+    use_video = payload.kind == "video"
+    use_audio = info["has_audio"]
+    filters, labels = [], []
+    for index, (start, end) in enumerate(keep):
+        if use_video:
+            filters.append(f"[0:v:0]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS[v{index}]")
+            labels.append(f"[v{index}]")
+        if use_audio:
+            filters.append(f"[0:a:0]atrim=start={start:.3f}:end={end:.3f},asetpts=PTS-STARTPTS[a{index}]")
+            labels.append(f"[a{index}]")
+    outputs = ("[outv]" if use_video else "") + ("[outa]" if use_audio else "")
+    filters.append(
+        "".join(labels)
+        + f"concat=n={len(keep)}:v={1 if use_video else 0}:a={1 if use_audio else 0}{outputs}"
+    )
+
+    command = [ffmpeg, "-hide_banner", "-y", "-i", str(file), "-filter_complex", ";".join(filters)]
+    if use_video:
+        command += ["-map", "[outv]", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p"]
+    if use_audio:
+        command += ["-map", "[outa]"]
+        audio_codecs = {
+            ".mp3": ["-c:a", "libmp3lame", "-q:a", "2"],
+            ".wav": ["-c:a", "pcm_s16le"],
+            ".flac": ["-c:a", "flac"],
+            ".ogg": ["-c:a", "libvorbis", "-q:a", "5"],
+        }
+        command += audio_codecs.get(extension, ["-c:a", "aac", "-b:a", "192k"])
+    if extension in (".mp4", ".m4a", ".mov"):
+        command += ["-movflags", "+faststart"]
+    command.append(str(output_path))
+
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as error:
+        if output_path.exists():
+            output_path.unlink()
+        raise HTTPException(status_code=500, detail=f"FFmpeg failed: {error.stderr[-800:]}")
+
+    kept_seconds = sum(end - start for start, end in keep)
+    return {
+        "name": output_path.name,
+        "path": str(output_path),
+        "folder": str(output_path.parent),
+        "original_duration": round(duration, 3),
+        "new_duration": round(kept_seconds, 3),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Video effects (presets, color grading, vintage & stylized textures)
+# ---------------------------------------------------------------------------
+VIDEO_EFFECT_PRESETS = {"none", "grayscale", "sepia", "retro", "film"}
+
+
+class VideoEffectsRequest(BaseModel):
+    path: str
+    preset: str = "none"
+    contrast: float = 1.0       # 0.5 to 2.0
+    saturation: float = 1.0     # 0.0 to 2.0
+    warmth: float = 0.0         # -1.0 to 1.0
+    white_balance: float = 0.0  # -1.0 to 1.0 (magenta <-> green tint balance)
+    light_leaks: float = 0.0    # 0.0 to 1.0
+    film_grain: float = 0.0     # 0.0 to 1.0
+    scratches: float = 0.0      # 0.0 to 1.0
+    vhs: float = 0.0            # 0.0 to 1.0
+    glitch: float = 0.0         # 0.0 to 1.0
+    lens_flares: float = 0.0    # 0.0 to 1.0
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, float(value)))
+
+
+def build_video_effects_filtergraph(payload: VideoEffectsRequest) -> tuple[str, str]:
+    """Build an FFmpeg filter_complex graph for presets, color grading, and textures.
+    Returns (filter_complex, output_label).
+    """
+    preset = (payload.preset or "none").strip().lower()
+    if preset not in VIDEO_EFFECT_PRESETS:
+        raise HTTPException(status_code=400, detail=f"Unsupported preset '{preset}'")
+
+    contrast = _clamp(payload.contrast, 0.5, 2.0)
+    saturation = _clamp(payload.saturation, 0.0, 2.0)
+    warmth = _clamp(payload.warmth, -1.0, 1.0)
+    white_balance = _clamp(payload.white_balance, -1.0, 1.0)
+    light_leaks = _clamp(payload.light_leaks, 0.0, 1.0)
+    film_grain = _clamp(payload.film_grain, 0.0, 1.0)
+    scratches = _clamp(payload.scratches, 0.0, 1.0)
+    vhs = _clamp(payload.vhs, 0.0, 1.0)
+    glitch = _clamp(payload.glitch, 0.0, 1.0)
+    lens_flares = _clamp(payload.lens_flares, 0.0, 1.0)
+
+    has_any = (
+        preset != "none"
+        or abs(contrast - 1.0) > 0.005
+        or abs(saturation - 1.0) > 0.005
+        or abs(warmth) > 0.005
+        or abs(white_balance) > 0.005
+        or any(v > 0.005 for v in (light_leaks, film_grain, scratches, vhs, glitch, lens_flares))
+    )
+    if not has_any:
+        raise HTTPException(status_code=400, detail="Select at least one preset, adjustment, or effect")
+
+    chain = ["format=rgb24"]
+
+    # 1. Presets
+    if preset == "grayscale":
+        chain.append("hue=s=0")
+    elif preset == "sepia":
+        chain.append("colorchannelmixer=.393:.769:.189:0:.349:.686:.168:0:.272:.534:.131")
+    elif preset == "retro":
+        chain.append("curves=r='0/0.06 0.5/0.54 1/0.94':g='0/0.04 0.5/0.50 1/0.92':b='0/0.09 0.5/0.46 1/0.82'")
+        chain.append("eq=saturation=0.82:contrast=0.95")
+        chain.append("vignette=PI/5")
+    elif preset == "film":
+        chain.append("curves=r='0/0.02 0.25/0.22 0.75/0.80 1/0.98':g='0/0.02 0.5/0.50 1/0.97':b='0/0.05 0.25/0.27 0.75/0.74 1/0.92'")
+        chain.append("eq=contrast=1.12:saturation=1.08")
+        chain.append("vignette=PI/6")
+
+    # 2. Color grading
+    if abs(contrast - 1.0) > 0.005 or abs(saturation - 1.0) > 0.005:
+        chain.append(f"eq=contrast={contrast:.3f}:saturation={saturation:.3f}")
+
+    if abs(warmth) > 0.005 or abs(white_balance) > 0.005:
+        r_shift = _clamp(0.35 * warmth - 0.12 * white_balance, -1.0, 1.0)
+        g_shift = _clamp(0.30 * white_balance, -1.0, 1.0)
+        b_shift = _clamp(-0.35 * warmth - 0.12 * white_balance, -1.0, 1.0)
+        chain.append(
+            f"colorbalance=rs={r_shift*0.6:.3f}:gs={g_shift*0.6:.3f}:bs={b_shift*0.6:.3f}"
+            f":rm={r_shift:.3f}:gm={g_shift:.3f}:bm={b_shift:.3f}"
+            f":rh={r_shift*0.8:.3f}:gh={g_shift*0.8:.3f}:bh={b_shift*0.8:.3f}"
+        )
+
+    # 3. Direct frame textures (fast C filters)
+    if vhs > 0.005:
+        shift = max(1, int(round(2 + 6 * vhs)))
+        chain.append(f"rgbashift=rh={shift}:bh={-shift}:edge=smear")
+        chain.append(f"drawgrid=w=0:h=4:t=1:c=black@{0.28 * vhs:.2f}")
+        chain.append(f"noise=alls={int(round(4 + 12 * vhs))}:allf=t")
+
+    if glitch > 0.005:
+        g_shift = max(2, int(round(4 + 16 * glitch)))
+        gv_shift = max(1, int(round(2 * glitch)))
+        chain.append(f"rgbashift=rh={g_shift}:bh={-g_shift}:rv={gv_shift}:edge=smear")
+        alpha = min(0.65, 0.20 + 0.40 * glitch)
+        chain.append(
+            f"drawbox=x=0:y='mod(floor(t*14)*197,ih)':w=iw:h='max(4,ih/26)':color=cyan@{alpha:.2f}:t=fill:enable='gt(sin(t*19.7),0.45)'"
+        )
+        chain.append(
+            f"drawbox=x=0:y='mod(floor(t*11)*311+53,ih)':w=iw:h='max(3,ih/34)':color=magenta@{alpha:.2f}:t=fill:enable='gt(cos(t*23.1),0.50)'"
+        )
+
+    if scratches > 0.005:
+        s_alpha = min(0.75, 0.25 + 0.45 * scratches)
+        chain.append(
+            f"drawbox=x='mod(floor(t*12)*373+91,iw)':y=0:w=2:h=ih:color=white@{s_alpha:.2f}:t=fill:enable='gt(sin(t*7.3),-0.1)'"
+        )
+        chain.append(
+            f"drawbox=x='mod(floor(t*9)*521+211,iw)':y=0:w=1:h=ih:color=black@{s_alpha:.2f}:t=fill:enable='gt(cos(t*11.1),0.0)'"
+        )
+        chain.append(
+            f"drawbox=x='mod(floor(t*15)*257+37,iw)':y=0:w=1:h=ih:color=white@{s_alpha * 0.8:.2f}:t=fill:enable='gt(sin(t*13.7),0.25)'"
+        )
+
+    if film_grain > 0.005:
+        chain.append(f"noise=alls={int(round(6 + 38 * film_grain))}:allf=t+u")
+
+    graphs = [f"[0:v:0]{','.join(chain)}[vbase]"]
+    current = "vbase"
+
+    # 4. Procedural screen-blended overlays rendered at low res (160x90) for speed, then scaled up
+    if light_leaks > 0.005:
+        op = min(0.85, 0.20 + 0.65 * light_leaks)
+        graphs.append(
+            "color=c=black:s=160x90:r=24,format=rgb24,"
+            "geq="
+            "r='clip(255*(exp(-((X-W*(0.08+0.07*sin(T*0.9)))^2+(Y-H*0.45)^2)/(2*(W*0.26)^2))*(0.75+0.25*sin(T*1.3))"
+            "+0.85*exp(-((X-W*0.94)^2+(Y-H*(0.28+0.12*cos(T*0.7)))^2)/(2*(W*0.22)^2))),0,255)':"
+            "g='clip(145*exp(-((X-W*(0.08+0.07*sin(T*0.9)))^2+(Y-H*0.45)^2)/(2*(W*0.24)^2))*(0.75+0.25*sin(T*1.3))"
+            "+55*exp(-((X-W*0.94)^2+(Y-H*(0.28+0.12*cos(T*0.7)))^2)/(2*(W*0.20)^2)),0,255)':"
+            "b='clip(35*exp(-((X-W*(0.08+0.07*sin(T*0.9)))^2+(Y-H*0.45)^2)/(2*(W*0.22)^2))"
+            "+120*exp(-((X-W*0.94)^2+(Y-H*(0.28+0.12*cos(T*0.7)))^2)/(2*(W*0.22)^2)),0,255)',"
+            "gblur=sigma=10[leak_small]"
+        )
+        graphs.append(f"[leak_small][{current}]scale2ref[leak_full][v_for_leak]")
+        graphs.append(f"[v_for_leak][leak_full]blend=all_mode=screen:all_opacity={op:.2f}:shortest=1[vleak]")
+        current = "vleak"
+
+    if lens_flares > 0.005:
+        op = min(0.90, 0.25 + 0.65 * lens_flares)
+        graphs.append(
+            "color=c=black:s=160x90:r=24,format=rgb24,"
+            "geq="
+            "r='clip(255*exp(-((X-W*(0.22+0.12*sin(T*0.6)))^2+(Y-H*0.22)^2)/(2*(W*0.10)^2))"
+            "+180*exp(-((Y-H*0.22)^2)/(2*(H*0.035)^2))*exp(-((X-W*(0.22+0.12*sin(T*0.6)))^2)/(2*(W*0.45)^2))"
+            "+130*exp(-((X-W*(0.65-0.08*sin(T*0.6)))^2+(Y-H*0.62)^2)/(2*(W*0.07)^2)),0,255)':"
+            "g='clip(235*exp(-((X-W*(0.22+0.12*sin(T*0.6)))^2+(Y-H*0.22)^2)/(2*(W*0.10)^2))"
+            "+210*exp(-((Y-H*0.22)^2)/(2*(H*0.035)^2))*exp(-((X-W*(0.22+0.12*sin(T*0.6)))^2)/(2*(W*0.45)^2))"
+            "+190*exp(-((X-W*(0.65-0.08*sin(T*0.6)))^2+(Y-H*0.62)^2)/(2*(W*0.07)^2)),0,255)':"
+            "b='clip(195*exp(-((X-W*(0.22+0.12*sin(T*0.6)))^2+(Y-H*0.22)^2)/(2*(W*0.10)^2))"
+            "+255*exp(-((Y-H*0.22)^2)/(2*(H*0.035)^2))*exp(-((X-W*(0.22+0.12*sin(T*0.6)))^2)/(2*(W*0.45)^2))"
+            "+245*exp(-((X-W*(0.65-0.08*sin(T*0.6)))^2+(Y-H*0.62)^2)/(2*(W*0.07)^2)),0,255)',"
+            "gblur=sigma=5[flare_small]"
+        )
+        graphs.append(f"[flare_small][{current}]scale2ref[flare_full][v_for_flare]")
+        graphs.append(f"[v_for_flare][flare_full]blend=all_mode=screen:all_opacity={op:.2f}:shortest=1[vflare]")
+        current = "vflare"
+
+    graphs.append(f"[{current}]format=yuv420p[vout]")
+    return ";".join(graphs), "[vout]"
+
+
+@app.post("/api/media/effects")
+def apply_video_effects(payload: VideoEffectsRequest):
+    file = resolve_media_file(payload.path, "video")
+    ffmpeg = find_ffmpeg()
+    if not ffmpeg:
+        raise HTTPException(status_code=500, detail="FFmpeg was not found")
+
+    info = probe_media(ffmpeg, file)
+    if not info["has_video"]:
+        raise HTTPException(status_code=400, detail="The selected file has no video stream")
+
+    filter_complex, out_label = build_video_effects_filtergraph(payload)
+
+    output_path = file.with_name(f"{file.stem}_fx_{uuid.uuid4().hex[:8]}.mp4")
+    while output_path.exists():
+        output_path = file.with_name(f"{file.stem}_fx_{uuid.uuid4().hex[:8]}.mp4")
+
+    command = [
+        ffmpeg, "-hide_banner", "-y",
+        "-i", str(file),
+        "-filter_complex", filter_complex,
+        "-map", out_label,
+        "-map", "0:a?",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
+        "-c:a", "copy",
+        "-movflags", "+faststart",
+        str(output_path),
+    ]
+
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+    except subprocess.CalledProcessError as error:
+        if output_path.exists():
+            output_path.unlink()
+        raise HTTPException(status_code=500, detail=f"FFmpeg failed: {error.stderr[-800:]}")
+
+    return {
+        "name": output_path.name,
+        "path": str(output_path),
+        "folder": str(output_path.parent),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Authentication (admin from .env, users stored encrypted in SQLite)
+# ---------------------------------------------------------------------------
+SESSION_COOKIE = "session"
+SESSION_TTL_SECONDS = 12 * 60 * 60
+MAX_LOGIN_FAILURES = 5
+LOGIN_FAILURE_WINDOW_SECONDS = 5 * 60
+ADMIN_USER_ID = -1
+USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
+MIN_PASSWORD_LENGTH = 8
+PROTECTED_STATIC_PATHS = {"/static/index.html", "/static/users.html"}
+PUBLIC_PATHS = {"/login", "/api/auth/login"}
+
+_login_failures: dict[tuple[str, str], list[float]] = {}
+
+
+def get_fernet() -> Fernet:
+    """Return the Fernet cipher; generate and persist ENCRYPTION_KEY in .env if missing."""
+    key = os.environ.get("ENCRYPTION_KEY", "").strip()
+    if not key:
+        key = Fernet.generate_key().decode()
+        with ENV_FILE.open("a", encoding="utf-8") as env_file:
+            env_file.write(f"\nENCRYPTION_KEY={key}\n")
+        os.environ["ENCRYPTION_KEY"] = key
+    return Fernet(key.encode())
+
+
+FERNET = get_fernet()
+LOOKUP_KEY = hashlib.sha256(b"username-lookup:" + os.environ["ENCRYPTION_KEY"].encode()).digest()
+
+
+def normalize_username(username: str) -> str:
+    return username.strip().lower()
+
+
+def username_lookup_hash(username: str) -> str:
+    return hmac.new(LOOKUP_KEY, normalize_username(username).encode(), hashlib.sha256).hexdigest()
+
+
+def encrypt_text(value: str) -> str:
+    return FERNET.encrypt(value.encode()).decode()
+
+
+def decrypt_text(value: str) -> str:
+    try:
+        return FERNET.decrypt(value.encode()).decode()
+    except InvalidToken:
+        return ""
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.scrypt(password.encode(), salt=salt, n=2**14, r=8, p=1, dklen=32)
+    return f"scrypt$16384$8$1${salt.hex()}${digest.hex()}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        _, n, r, p, salt_hex, digest_hex = stored.split("$")
+        digest = hashlib.scrypt(
+            password.encode(), salt=bytes.fromhex(salt_hex), n=int(n), r=int(r), p=int(p), dklen=32
+        )
+        return hmac.compare_digest(digest.hex(), digest_hex)
+    except Exception:
+        return False
+
+
+DUMMY_PASSWORD_HASH = hash_password(secrets.token_hex(8))
+
+
+def init_auth_db():
+    with db() as connection:
+        connection.executescript("""
+            CREATE TABLE IF NOT EXISTS app_users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                username_hash TEXT NOT NULL UNIQUE,
+                username_enc TEXT NOT NULL,
+                full_name_enc TEXT NOT NULL,
+                password_hash TEXT NOT NULL,
+                gemini_key_enc TEXT NOT NULL DEFAULT '',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+
+            CREATE TABLE IF NOT EXISTS app_sessions (
+                token_hash TEXT PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                expires_at REAL NOT NULL
+            );
+        """)
+        user_columns = {row[1] for row in connection.execute("PRAGMA table_info(app_users)")}
+        if "gemini_key_enc" not in user_columns:
+            connection.execute("ALTER TABLE app_users ADD COLUMN gemini_key_enc TEXT NOT NULL DEFAULT ''")
+        connection.execute("DELETE FROM app_sessions WHERE expires_at < ?", (time.time(),))
+
+
+init_auth_db()
+
+
+def admin_credentials():
+    return os.environ.get("ADMIN_USERNAME", "").strip(), os.environ.get("ADMIN_PASSWORD", "")
+
+
+if not all(admin_credentials()):
+    print("WARNING: ADMIN_USERNAME / ADMIN_PASSWORD are not set in .env - admin login is disabled.")
+
+
+def create_session(user_id: int, role: str) -> str:
+    token = secrets.token_urlsafe(32)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    with db() as connection:
+        connection.execute(
+            "INSERT INTO app_sessions (token_hash, user_id, role, expires_at) VALUES (?, ?, ?, ?)",
+            (token_hash, user_id, role, time.time() + SESSION_TTL_SECONDS),
+        )
+    return token
+
+
+def get_session(request: Request):
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return None
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    with db() as connection:
+        row = connection.execute(
+            "SELECT user_id, role, expires_at FROM app_sessions WHERE token_hash = ?", (token_hash,)
+        ).fetchone()
+        if row is None:
+            return None
+        if row["expires_at"] < time.time():
+            connection.execute("DELETE FROM app_sessions WHERE token_hash = ?", (token_hash,))
+            return None
+        if row["role"] == "admin":
+            admin_name = admin_credentials()[0]
+            if not admin_name:
+                return None
+            return {"user_id": ADMIN_USER_ID, "role": "admin", "username": admin_name, "name": "Administrator"}
+        user = connection.execute(
+            "SELECT username_enc, full_name_enc FROM app_users WHERE id = ?", (row["user_id"],)
+        ).fetchone()
+        if user is None:
+            connection.execute("DELETE FROM app_sessions WHERE token_hash = ?", (token_hash,))
+            return None
+        return {
+            "user_id": row["user_id"],
+            "role": "user",
+            "username": decrypt_text(user["username_enc"]),
+            "name": decrypt_text(user["full_name_enc"]),
+        }
+
+
+@app.middleware("http")
+async def require_login(request: Request, call_next):
+    path = request.url.path
+    session = get_session(request)
+    request.state.session = session
+
+    if path in PUBLIC_PATHS or (path.startswith("/static/") and path not in PROTECTED_STATIC_PATHS):
+        return await call_next(request)
+
+    is_api = path.startswith("/api/")
+    if session is None:
+        if is_api:
+            return JSONResponse({"detail": "Login required"}, status_code=401)
+        return RedirectResponse("/login")
+
+    if session["role"] == "admin":
+        admin_allowed = (
+            path in ("/admin/users", "/static/users.html")
+            or path.startswith("/api/admin/")
+            or path.startswith("/api/auth/")
+        )
+        if not admin_allowed:
+            if is_api:
+                return JSONResponse({"detail": "Administrators can only manage users"}, status_code=403)
+            return RedirectResponse("/admin/users")
+
+    is_admin_route = path.startswith("/api/admin/") or path == "/admin/users" or path == "/static/users.html"
+    if is_admin_route and session["role"] != "admin":
+        if is_api:
+            return JSONResponse({"detail": "Administrator access required"}, status_code=403)
+        return RedirectResponse("/")
+
+    return await call_next(request)
+
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class RegisterUserRequest(BaseModel):
+    name: str
+    username: str
+    password: str
+
+
+def _client_key(request: Request, username: str):
+    host = request.client.host if request.client else "unknown"
+    return (host, normalize_username(username))
+
+
+def _recent_failures(key):
+    now = time.time()
+    attempts = [stamp for stamp in _login_failures.get(key, []) if now - stamp < LOGIN_FAILURE_WINDOW_SECONDS]
+    if attempts:
+        _login_failures[key] = attempts
+    else:
+        _login_failures.pop(key, None)
+    return attempts
+
+
+@app.get("/login", include_in_schema=False)
+def login_page(request: Request):
+    session = getattr(request.state, "session", None)
+    if session:
+        return RedirectResponse("/admin/users" if session["role"] == "admin" else "/")
+    return FileResponse(STATIC_DIR / "login.html")
+
+
+@app.get("/admin/users", include_in_schema=False)
+def admin_users_page():
+    return FileResponse(STATIC_DIR / "users.html")
+
+
+@app.post("/api/auth/login")
+def login(payload: LoginRequest, request: Request):
+    username = payload.username.strip()
+    password = payload.password
+    key = _client_key(request, username)
+    if len(_recent_failures(key)) >= MAX_LOGIN_FAILURES:
+        raise HTTPException(status_code=429, detail="Too many failed attempts. Try again in a few minutes.")
+
+    admin_name, admin_password = admin_credentials()
+    admin_ok = bool(admin_name and admin_password) and hmac.compare_digest(
+        username.encode(), admin_name.encode()
+    ) and hmac.compare_digest(password.encode(), admin_password.encode())
+
+    role, user_id = None, None
+    if admin_ok:
+        role, user_id = "admin", ADMIN_USER_ID
+    else:
+        with db() as connection:
+            row = connection.execute(
+                "SELECT id, password_hash FROM app_users WHERE username_hash = ?",
+                (username_lookup_hash(username),),
+            ).fetchone()
+        stored_hash = row["password_hash"] if row else DUMMY_PASSWORD_HASH
+        password_ok = verify_password(password, stored_hash)
+        if row and password_ok:
+            role, user_id = "user", row["id"]
+
+    if role is None:
+        _login_failures.setdefault(key, []).append(time.time())
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+
+    _login_failures.pop(key, None)
+    token = create_session(user_id, role)
+    response = JSONResponse({"success": True, "role": role})
+    response.set_cookie(
+        SESSION_COOKIE, token, max_age=SESSION_TTL_SECONDS, httponly=True, samesite="lax", path="/"
+    )
+    return response
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request):
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        with db() as connection:
+            connection.execute(
+                "DELETE FROM app_sessions WHERE token_hash = ?",
+                (hashlib.sha256(token.encode()).hexdigest(),),
+            )
+    response = JSONResponse({"success": True})
+    response.delete_cookie(SESSION_COOKIE, path="/")
+    return response
+
+
+@app.get("/api/auth/me")
+def auth_me(request: Request):
+    session = request.state.session
+    return {"username": session["username"], "name": session["name"], "role": session["role"]}
+
+
+@app.get("/api/admin/users")
+def list_users():
+    with db() as connection:
+        rows = connection.execute(
+            "SELECT id, username_enc, full_name_enc, created_at FROM app_users ORDER BY id"
+        ).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "name": decrypt_text(row["full_name_enc"]),
+            "username": decrypt_text(row["username_enc"]),
+            "created_at": row["created_at"],
+        }
+        for row in rows
+    ]
+
+
+@app.post("/api/admin/users")
+def register_user(payload: RegisterUserRequest):
+    name = payload.name.strip()
+    username = payload.username.strip()
+    password = payload.password
+
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    if not USERNAME_PATTERN.match(username):
+        raise HTTPException(
+            status_code=400,
+            detail="Username must be 3-32 characters: letters, numbers, dot, dash or underscore",
+        )
+    if len(password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(status_code=400, detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
+    if normalize_username(username) == normalize_username(admin_credentials()[0]):
+        raise HTTPException(status_code=409, detail="That username is reserved")
+
+    try:
+        with db() as connection:
+            cursor = connection.execute(
+                """INSERT INTO app_users (username_hash, username_enc, full_name_enc, password_hash)
+                   VALUES (?, ?, ?, ?)""",
+                (username_lookup_hash(username), encrypt_text(username), encrypt_text(name), hash_password(password)),
+            )
+            new_id = cursor.lastrowid
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="Username already exists")
+    return {"id": new_id, "name": name, "username": username}
+
+
+class ResetPasswordRequest(BaseModel):
+    password: str
+
+
+@app.post("/api/admin/users/{user_id}/reset-password")
+@app.put("/api/admin/users/{user_id}/reset-password")
+def reset_user_password(user_id: int, payload: ResetPasswordRequest):
+    if len(payload.password) < MIN_PASSWORD_LENGTH:
+        raise HTTPException(status_code=400, detail=f"Password must be at least {MIN_PASSWORD_LENGTH} characters")
+    with db() as connection:
+        cursor = connection.execute(
+            "UPDATE app_users SET password_hash = ? WHERE id = ?",
+            (hash_password(payload.password), user_id),
+        )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="User not found")
+        connection.execute("DELETE FROM app_sessions WHERE user_id = ? AND role = 'user'", (user_id,))
+    return {"success": True, "id": user_id}
+
+
+@app.delete("/api/admin/users/{user_id}")
+def delete_user(user_id: int):
+    with db() as connection:
+        cursor = connection.execute("DELETE FROM app_users WHERE id = ?", (user_id,))
+        connection.execute("DELETE FROM app_sessions WHERE user_id = ? AND role = 'user'", (user_id,))
+    return {"success": True, "id": user_id, "deleted": cursor.rowcount > 0}
 
 
 if __name__ == "__main__":

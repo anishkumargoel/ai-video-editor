@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>User registration - Video Editor</title>
+  <style>
+    :root { color-scheme: dark; --bg:#0b0d12; --panel:#171a21; --line:#292d38; --accent:#ff4d36; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family:Arial,sans-serif; background:var(--bg); color:#f5f7fb; }
+    header { height:66px; display:flex; align-items:center; justify-content:space-between; padding:0 24px; border-bottom:1px solid var(--line); background:#11141b; }
+    header h1 { margin:0; font-size:22px; }
+    .actions { display:flex; gap:8px; align-items:center; }
+    button, input, a.secondary { font:inherit; }
+    button { cursor:pointer; }
+    .primary { border:0; border-radius:7px; padding:10px 14px; background:var(--accent); color:white; font-weight:700; }
+    .secondary { display:inline-block; border:1px solid #464d5c; border-radius:7px; padding:9px 12px; background:#242832; color:white; text-decoration:none; }
+    .danger { border:1px solid #b84d4d; border-radius:7px; padding:9px 12px; background:#462528; color:white; }
+    main { display:grid; grid-template-columns:380px minmax(0,1fr); align-items:start; min-height:calc(100vh - 66px); }
+    #users-sidebar { min-height:calc(100vh - 66px); border-right:1px solid var(--line); background:#0f1117; padding:16px; overflow-y:auto; }
+    #users-sidebar h3 { margin:0 0 12px; }
+    #register-section { padding:24px; }
+    #user-form { max-width:620px; margin:24px auto; }
+    .card { border:1px solid var(--line); border-radius:12px; padding:20px; background:#11141b; margin-bottom:20px; }
+    .card h2, .card h3 { margin-top:0; }
+    .field { display:grid; gap:7px; margin-bottom:16px; }
+    input { width:100%; border:1px solid #46505f; border-radius:7px; padding:11px; background:#0b0d12; color:white; }
+    .muted { color:#9da7b7; }
+    #form-status { color:#ffb4a9; min-height:1.2em; margin-bottom:0; }
+    ul { list-style:none; margin:0; padding:0; }
+    li.user-row { border:1px solid var(--line); border-radius:9px; padding:12px; margin-bottom:10px; background:var(--panel); }
+    .user-row-main { display:flex; flex-direction:column; gap:10px; }
+    .user-name { font-weight:700; }
+    .user-meta { color:#9da7b7; font-size:12px; margin-top:4px; }
+    .reset-box { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top:10px; padding-top:10px; border-top:1px solid var(--line); }
+    .reset-box[hidden] { display:none; }
+    .reset-box input { flex:1 1 200px; padding:9px; }
+    .reset-status { color:#ffb4a9; font-size:13px; width:100%; }
+    @media(max-width:800px){
+      main { grid-template-columns:1fr; }
+      #users-sidebar { min-height:0; border-right:0; border-bottom:1px solid var(--line); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>User management</h1>
+    <div class="actions">
+      <button id="logout-button" class="secondary" type="button">Logout</button>
+    </div>
+  </header>
+  <main>
+    <aside id="users-sidebar">
+      <h3>Registered users</h3>
+      <ul id="user-list"></ul>
+    </aside>
+
+    <section id="register-section">
+      <form id="user-form" class="card">
+        <h2>Register a user</h2>
+        <div class="field"><label for="name">Name</label><input id="name" required autocomplete="off"></div>
+        <div class="field"><label for="username">Username</label><input id="username" required autocomplete="off" minlength="3" maxlength="32" placeholder="letters, numbers, . - _"></div>
+        <div class="field"><label for="password">Password</label><input id="password" type="password" required autocomplete="new-password" minlength="8" placeholder="at least 8 characters"></div>
+        <button id="register-button" class="primary" type="submit">Register user</button>
+        <p id="form-status"></p>
+        <p class="muted" style="font-size:12px;">Names, usernames and passwords are stored encrypted/hashed in SQLite.</p>
+      </form>
+    </section>
+  </main>
+  <script>
+    const _fetch = window.fetch.bind(window);
+    window.fetch = async (...args) => {
+      const response = await _fetch(...args);
+      if (response.status === 401) window.location.href = "/login";
+      return response;
+    };
+
+    const statusEl = document.getElementById("form-status");
+
+    async function loadUsers() {
+      const list = document.getElementById("user-list");
+      list.innerHTML = "";
+      const response = await fetch("/api/admin/users");
+      if (!response.ok) { list.innerHTML = '<li class="muted">Unable to load users.</li>'; return; }
+      const users = await response.json();
+      if (!users.length) { list.innerHTML = '<li class="muted">No users registered yet.</li>'; return; }
+      users.forEach(user => {
+        const item = document.createElement("li");
+        item.className = "user-row";
+        item.innerHTML = `
+          <div class="user-row-main">
+            <div><div class="user-name"></div><div class="user-meta"></div></div>
+            <div class="actions">
+              <button type="button" class="secondary reset-btn">Reset password</button>
+              <button type="button" class="danger delete-btn">Delete</button>
+            </div>
+          </div>
+          <form class="reset-box" hidden>
+            <input type="password" class="reset-input" minlength="8" required autocomplete="new-password" placeholder="New password (at least 8 characters)">
+            <button type="submit" class="primary reset-save">Save password</button>
+            <button type="button" class="secondary reset-cancel">Cancel</button>
+            <span class="reset-status"></span>
+          </form>
+        `;
+        item.querySelector(".user-name").textContent = user.name;
+        item.querySelector(".user-meta").textContent = `@${user.username} · added ${user.created_at}`;
+
+        const resetBox = item.querySelector(".reset-box");
+        const resetInput = item.querySelector(".reset-input");
+        const resetStatus = item.querySelector(".reset-status");
+
+        item.querySelector(".reset-btn").onclick = () => {
+          resetBox.hidden = !resetBox.hidden;
+          resetStatus.textContent = "";
+          if (!resetBox.hidden) { resetInput.value = ""; resetInput.focus(); }
+        };
+        item.querySelector(".reset-cancel").onclick = () => {
+          resetBox.hidden = true;
+          resetInput.value = "";
+          resetStatus.textContent = "";
+        };
+        resetBox.onsubmit = async event => {
+          event.preventDefault();
+          const saveBtn = item.querySelector(".reset-save");
+          saveBtn.disabled = true;
+          resetStatus.textContent = "Updating password...";
+          try {
+            const res = await fetch(`/api/admin/users/${encodeURIComponent(user.id)}/reset-password`, {
+              method: "POST",
+              headers: {"Content-Type": "application/json"},
+              body: JSON.stringify({password: resetInput.value})
+            });
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) { resetStatus.textContent = data.detail || "Unable to reset password"; return; }
+            resetBox.hidden = true;
+            resetInput.value = "";
+            resetStatus.textContent = "";
+            statusEl.textContent = `Password reset for ${user.username}`;
+          } catch (error) {
+            resetStatus.textContent = "Unable to reset password";
+          } finally {
+            saveBtn.disabled = false;
+          }
+        };
+
+        item.querySelector(".delete-btn").onclick = async () => {
+          if (!confirm(`Delete user ${user.username}?`)) return;
+          await fetch(`/api/admin/users/${encodeURIComponent(user.id)}`, {method: "DELETE"});
+          statusEl.textContent = `Deleted ${user.username}`;
+          await loadUsers();
+        };
+        list.appendChild(item);
+      });
+    }
+
+    document.getElementById("user-form").onsubmit = async event => {
+      event.preventDefault();
+      const button = document.getElementById("register-button");
+      button.disabled = true;
+      statusEl.textContent = "Saving...";
+      try {
+        const response = await fetch("/api/admin/users", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            name: document.getElementById("name").value,
+            username: document.getElementById("username").value,
+            password: document.getElementById("password").value
+          })
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) { statusEl.textContent = data.detail || "Unable to register user"; return; }
+        document.getElementById("user-form").reset();
+        statusEl.textContent = `Registered ${data.username}`;
+        await loadUsers();
+      } catch (error) {
+        statusEl.textContent = "Unable to register user";
+      } finally {
+        button.disabled = false;
+      }
+    };
+
+    document.getElementById("logout-button").onclick = async () => {
+      await fetch("/api/auth/logout", {method: "POST"});
+      window.location.href = "/login";
+    };
+
+    loadUsers();
+  </script>
+</body>
+</html>
