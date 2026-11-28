@@ -44,6 +44,21 @@
     .fx-slider-row { display:grid; grid-template-columns:120px minmax(0,1fr) 52px; gap:10px; align-items:center; margin-bottom:10px; font-size:14px; }
     .fx-slider-row input[type=range] { width:100%; accent-color:var(--accent); padding:0; border:0; background:transparent; }
     .fx-slider-row span { text-align:right; color:#9da7b7; font-variant-numeric:tabular-nums; }
+    .fx-project-inputs { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+    .fx-project-inputs input { flex:1 1 240px; }
+    .fx-saved-projects { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+    .fx-proj-chip { display:inline-flex; align-items:center; border:1px solid var(--line); border-radius:8px; background:var(--panel); overflow:hidden; }
+    .fx-proj-chip.active { border-color:var(--accent); }
+    .fx-proj-load { border:0; background:transparent; color:white; padding:7px 10px; font-size:13px; }
+    .fx-proj-load:hover { background:#242832; }
+    .fx-proj-del { border:0; border-left:1px solid var(--line); background:transparent; color:#ffb4a9; padding:7px 9px; font-size:12px; }
+    .fx-proj-del:hover { background:#462528; }
+    #fx-bar { position:relative; height:16px; margin:12px 0 4px; border-radius:8px; background:#242832; cursor:pointer; overflow:hidden; }
+    .fx-bar-seg { position:absolute; top:0; bottom:0; opacity:0.85; }
+    #fx-playhead { position:absolute; top:0; bottom:0; width:2px; background:white; left:0; pointer-events:none; z-index:2; }
+    .fx-range-row { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:6px; }
+    .fx-range-row label { display:flex; align-items:center; gap:6px; color:#9da7b7; font-size:14px; }
+    .fx-range-row input { width:92px; padding:8px; }
     .crop-header { display:flex; align-items:center; justify-content:space-between; }
     .crop-header h2 { margin:0 0 12px; }
     .crop-card { border:1px solid var(--line); border-radius:12px; padding:18px; background:#11141b; margin-bottom:16px; }
@@ -273,6 +288,19 @@
     </div>
 
     <div class="crop-card">
+      <div class="fx-project-bar">
+        <div class="fx-project-inputs">
+          <input id="fx-project-name" placeholder="Effects project name (e.g. Vintage Intro)">
+          <button id="fx-project-save" class="primary" type="button">Save effects project</button>
+          <button id="fx-project-save-new" class="secondary" type="button" hidden>Save as new project</button>
+          <button id="fx-project-new" class="secondary" type="button">New</button>
+        </div>
+        <p id="fx-project-status" class="form-status" style="margin:6px 0 0;"></p>
+      </div>
+      <div id="fx-saved-projects" class="fx-saved-projects"></div>
+    </div>
+
+    <div class="crop-card">
       <div class="folder-row">
         <input id="fx-path" readonly placeholder="No video selected">
         <button id="fx-select" class="primary" type="button">Select video</button>
@@ -285,11 +313,34 @@
           <video id="fx-video" controls playsinline preload="metadata"></video>
           <canvas id="fx-overlay"></canvas>
         </div>
-        <p class="muted" style="font-size:12px; margin-bottom:0;">Live preview approximates presets, color grading, and textures. Saving renders the full video with FFmpeg into a new file in the same folder.</p>
+        <div id="fx-bar" title="Click to seek. Colored blocks = effect segments, dark = unchanged"><div id="fx-playhead"></div></div>
+        <p id="fx-preview-badge" class="muted" style="font-size:13px; margin:6px 0 12px;"></p>
+
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:8px;">
+          <h3 style="margin:0;">Effect segments</h3>
+          <button id="fx-clear-segments" class="secondary" type="button">Clear segments</button>
+        </div>
+        <p class="muted" style="font-size:12px; margin:0 0 10px;">Uncovered parts of the video stay unchanged. Leave segments empty to apply the right-side controls to the entire video.</p>
+        <ul id="fx-segment-list" class="prompt-list"></ul>
+
+        <div class="crop-tools" style="margin-top:14px;">
+          <button id="fx-save" class="primary" type="button">Save as new video file</button>
+        </div>
+        <p id="fx-status" class="form-status"></p>
       </div>
 
       <div class="crop-card fx-controls-card">
-        <h3 style="margin-top:0;">Presets</h3>
+        <h3 id="fx-controls-heading" style="margin-top:0;">Segment time range</h3>
+        <div class="fx-range-row">
+          <label>From <input id="fx-seg-start" value="0:00" placeholder="0:00 or sec"></label>
+          <button id="fx-start-here" class="secondary" type="button">Here</button>
+          <label>To <input id="fx-seg-end" placeholder="end or sec"></label>
+          <button id="fx-end-here" class="secondary" type="button">Here</button>
+          <button id="fx-end-max" class="secondary" type="button">To end</button>
+        </div>
+        <p class="muted" style="font-size:12px; margin:4px 0 14px;">Leave "To" blank to apply until the end of the video (works even when loaded onto a new video of different length).</p>
+
+        <h3>Presets</h3>
         <div id="fx-presets" class="fx-preset-group">
           <button type="button" class="secondary fx-preset active" data-preset="none">None</button>
           <button type="button" class="secondary fx-preset" data-preset="grayscale">Grayscale</button>
@@ -353,10 +404,10 @@
         </div>
 
         <div class="crop-tools" style="margin-top:16px;">
-          <button id="fx-save" class="primary" type="button">Save as new file</button>
-          <button id="fx-reset" class="secondary" type="button">Reset all</button>
+          <button id="fx-add-segment" class="primary" type="button">Add segment</button>
+          <button id="fx-cancel-edit" class="secondary" type="button" hidden>Cancel edit</button>
+          <button id="fx-reset" class="secondary" type="button">Reset controls</button>
         </div>
-        <p id="fx-status" class="form-status"></p>
       </div>
     </div>
   </main>
@@ -974,9 +1025,22 @@
     const fxVideo = document.getElementById("fx-video");
     const fxOverlay = document.getElementById("fx-overlay");
     const fxCtx = fxOverlay.getContext("2d");
-    const fxState = {path: "", preset: "none", raf: 0};
+    const FX_COLORS = ["#e67e22", "#3498db", "#9b59b6", "#1abc9c", "#e74c3c", "#f1c40f"];
+    const FX_NEUTRAL = {
+      preset: "none", contrast: 1.0, saturation: 1.0, warmth: 0.0, white_balance: 0.0,
+      light_leaks: 0.0, film_grain: 0.0, scratches: 0.0, vhs: 0.0, glitch: 0.0, lens_flares: 0.0
+    };
+    const fxState = {
+      path: "", preset: "none", raf: 0,
+      segments: [], editingIndex: -1,
+      projectId: null, projectName: ""
+    };
 
-    function getFxValues() {
+    function fxDuration() {
+      return fxVideo && isFinite(fxVideo.duration) ? fxVideo.duration : 0;
+    }
+
+    function getFxControlValues() {
       return {
         preset: fxState.preset,
         contrast: Number(document.getElementById("fx-contrast").value),
@@ -992,37 +1056,96 @@
       };
     }
 
-    function updateFxReadoutsAndFilter() {
-      const v = getFxValues();
-      document.getElementById("fx-contrast-val").textContent = v.contrast.toFixed(2);
-      document.getElementById("fx-saturation-val").textContent = v.saturation.toFixed(2);
-      document.getElementById("fx-warmth-val").textContent = v.warmth.toFixed(2);
-      document.getElementById("fx-white-balance-val").textContent = v.white_balance.toFixed(2);
-      document.getElementById("fx-light-leaks-val").textContent = `${Math.round(v.light_leaks * 100)}%`;
-      document.getElementById("fx-film-grain-val").textContent = `${Math.round(v.film_grain * 100)}%`;
-      document.getElementById("fx-scratches-val").textContent = `${Math.round(v.scratches * 100)}%`;
-      document.getElementById("fx-vhs-val").textContent = `${Math.round(v.vhs * 100)}%`;
-      document.getElementById("fx-glitch-val").textContent = `${Math.round(v.glitch * 100)}%`;
-      document.getElementById("fx-lens-flares-val").textContent = `${Math.round(v.lens_flares * 100)}%`;
+    function setFxControlValues(v) {
+      fxState.preset = v.preset || "none";
+      document.querySelectorAll(".fx-preset").forEach(btn => btn.classList.toggle("active", btn.dataset.preset === fxState.preset));
+      document.getElementById("fx-contrast").value = String(v.contrast ?? 1.0);
+      document.getElementById("fx-saturation").value = String(v.saturation ?? 1.0);
+      document.getElementById("fx-warmth").value = String(v.warmth ?? 0.0);
+      document.getElementById("fx-white-balance").value = String(v.white_balance ?? 0.0);
+      document.getElementById("fx-light-leaks").value = String(Math.round((v.light_leaks ?? 0) * 100));
+      document.getElementById("fx-film-grain").value = String(Math.round((v.film_grain ?? 0) * 100));
+      document.getElementById("fx-scratches").value = String(Math.round((v.scratches ?? 0) * 100));
+      document.getElementById("fx-vhs").value = String(Math.round((v.vhs ?? 0) * 100));
+      document.getElementById("fx-glitch").value = String(Math.round((v.glitch ?? 0) * 100));
+      document.getElementById("fx-lens-flares").value = String(Math.round((v.lens_flares ?? 0) * 100));
+      updateFxReadoutsAndFilter();
+    }
 
+    function summarizeFx(v) {
+      const tags = [];
+      if (v.preset && v.preset !== "none") tags.push(v.preset);
+      if (Math.abs((v.contrast ?? 1) - 1) > 0.005) tags.push(`contrast ${Number(v.contrast).toFixed(2)}`);
+      if (Math.abs((v.saturation ?? 1) - 1) > 0.005) tags.push(`sat ${Number(v.saturation).toFixed(2)}`);
+      if (Math.abs(v.warmth ?? 0) > 0.005) tags.push(`warmth ${Number(v.warmth).toFixed(2)}`);
+      if (Math.abs(v.white_balance ?? 0) > 0.005) tags.push(`WB ${Number(v.white_balance).toFixed(2)}`);
+      if ((v.light_leaks ?? 0) > 0.005) tags.push(`light leaks ${Math.round(v.light_leaks * 100)}%`);
+      if ((v.film_grain ?? 0) > 0.005) tags.push(`grain ${Math.round(v.film_grain * 100)}%`);
+      if ((v.scratches ?? 0) > 0.005) tags.push(`scratches ${Math.round(v.scratches * 100)}%`);
+      if ((v.vhs ?? 0) > 0.005) tags.push(`VHS ${Math.round(v.vhs * 100)}%`);
+      if ((v.glitch ?? 0) > 0.005) tags.push(`glitch ${Math.round(v.glitch * 100)}%`);
+      if ((v.lens_flares ?? 0) > 0.005) tags.push(`flares ${Math.round(v.lens_flares * 100)}%`);
+      return tags.length ? tags.join(", ") : "no change";
+    }
+
+    function activePreviewSettings() {
+      if (!fxState.segments.length || fxState.editingIndex >= 0) {
+        return {values: getFxControlValues(), label: fxState.editingIndex >= 0 ? `Editing segment ${fxState.editingIndex + 1}` : "Draft controls (full video if no segments added)"};
+      }
+      const t = fxVideo.currentTime || 0;
+      const dur = fxDuration();
+      for (let i = 0; i < fxState.segments.length; i++) {
+        const seg = fxState.segments[i];
+        const segEnd = seg.end === null || seg.end === undefined ? (dur || Infinity) : seg.end;
+        if (t >= seg.start && t < segEnd) {
+          return {values: seg, label: `Segment ${i + 1} (${fmtTime(seg.start)} → ${seg.end === null ? "end" : fmtTime(seg.end)} · ${summarizeFx(seg)})`};
+        }
+      }
+      return {values: FX_NEUTRAL, label: "Original (no effects at current time)"};
+    }
+
+    function applyFxFilterToVideo(v) {
       const filters = [];
       if (v.preset === "grayscale") filters.push("grayscale(1)");
       else if (v.preset === "sepia") filters.push("sepia(1)");
       else if (v.preset === "retro") filters.push("sepia(0.35)", "contrast(0.95)", "saturate(0.82)", "brightness(1.04)");
       else if (v.preset === "film") filters.push("contrast(1.12)", "saturate(1.08)", "sepia(0.08)");
 
-      if (Math.abs(v.contrast - 1) > 0.005) filters.push(`contrast(${v.contrast.toFixed(2)})`);
-      if (Math.abs(v.saturation - 1) > 0.005) filters.push(`saturate(${v.saturation.toFixed(2)})`);
-      if (v.warmth > 0.005) filters.push(`sepia(${(v.warmth * 0.35).toFixed(2)})`);
-      if (v.warmth < -0.005) filters.push(`hue-rotate(${(v.warmth * 22).toFixed(1)}deg)`);
-      if (Math.abs(v.white_balance) > 0.005) filters.push(`hue-rotate(${(v.white_balance * 28).toFixed(1)}deg)`);
-      if (v.vhs > 0.005) filters.push(`blur(${(v.vhs * 0.8).toFixed(2)}px)`);
+      if (Math.abs((v.contrast ?? 1) - 1) > 0.005) filters.push(`contrast(${Number(v.contrast).toFixed(2)})`);
+      if (Math.abs((v.saturation ?? 1) - 1) > 0.005) filters.push(`saturate(${Number(v.saturation).toFixed(2)})`);
+      if ((v.warmth ?? 0) > 0.005) filters.push(`sepia(${(v.warmth * 0.35).toFixed(2)})`);
+      if ((v.warmth ?? 0) < -0.005) filters.push(`hue-rotate(${(v.warmth * 22).toFixed(1)}deg)`);
+      if (Math.abs(v.white_balance ?? 0) > 0.005) filters.push(`hue-rotate(${(v.white_balance * 28).toFixed(1)}deg)`);
+      if ((v.vhs ?? 0) > 0.005) filters.push(`blur(${(v.vhs * 0.8).toFixed(2)}px)`);
 
       fxVideo.style.filter = filters.join(" ") || "none";
+    }
+
+    function updateFxReadoutsAndFilter() {
+      const c = getFxControlValues();
+      document.getElementById("fx-contrast-val").textContent = c.contrast.toFixed(2);
+      document.getElementById("fx-saturation-val").textContent = c.saturation.toFixed(2);
+      document.getElementById("fx-warmth-val").textContent = c.warmth.toFixed(2);
+      document.getElementById("fx-white-balance-val").textContent = c.white_balance.toFixed(2);
+      document.getElementById("fx-light-leaks-val").textContent = `${Math.round(c.light_leaks * 100)}%`;
+      document.getElementById("fx-film-grain-val").textContent = `${Math.round(c.film_grain * 100)}%`;
+      document.getElementById("fx-scratches-val").textContent = `${Math.round(c.scratches * 100)}%`;
+      document.getElementById("fx-vhs-val").textContent = `${Math.round(c.vhs * 100)}%`;
+      document.getElementById("fx-glitch-val").textContent = `${Math.round(c.glitch * 100)}%`;
+      document.getElementById("fx-lens-flares-val").textContent = `${Math.round(c.lens_flares * 100)}%`;
       drawFxOverlay();
     }
 
     function drawFxOverlay() {
+      const active = activePreviewSettings();
+      const v = active.values;
+      applyFxFilterToVideo(v);
+
+      const dur = fxDuration();
+      const cur = fxVideo.currentTime || 0;
+      document.getElementById("fx-playhead").style.left = dur ? `${(cur / dur) * 100}%` : "0";
+      document.getElementById("fx-preview-badge").textContent = `${fmtTime(cur)} / ${fmtTime(dur)} · ${active.label}`;
+
       const rect = fxVideo.getBoundingClientRect();
       if (!rect.width || !rect.height) return;
       const w = Math.max(1, Math.round(rect.width));
@@ -1033,10 +1156,9 @@
       }
       fxCtx.clearRect(0, 0, w, h);
 
-      const v = getFxValues();
       const t = fxVideo.currentTime || performance.now() / 1000;
 
-      if (v.warmth !== 0 || v.white_balance !== 0) {
+      if ((v.warmth ?? 0) !== 0 || (v.white_balance ?? 0) !== 0) {
         fxCtx.save();
         if (v.warmth > 0) {
           fxCtx.fillStyle = `rgba(255, 150, 60, ${(v.warmth * 0.14).toFixed(3)})`;
@@ -1063,7 +1185,7 @@
         fxCtx.fillRect(0, 0, w, h);
       }
 
-      if (v.light_leaks > 0) {
+      if ((v.light_leaks ?? 0) > 0) {
         fxCtx.save();
         fxCtx.globalCompositeOperation = "screen";
         const lx = w * (0.08 + 0.07 * Math.sin(t * 0.9));
@@ -1082,7 +1204,7 @@
         fxCtx.restore();
       }
 
-      if (v.lens_flares > 0) {
+      if ((v.lens_flares ?? 0) > 0) {
         fxCtx.save();
         fxCtx.globalCompositeOperation = "screen";
         const fxX = w * (0.22 + 0.12 * Math.sin(t * 0.6));
@@ -1108,12 +1230,12 @@
         fxCtx.restore();
       }
 
-      if (v.vhs > 0) {
+      if ((v.vhs ?? 0) > 0) {
         fxCtx.fillStyle = `rgba(0, 0, 0, ${(0.28 * v.vhs).toFixed(2)})`;
         for (let y = 0; y < h; y += 4) fxCtx.fillRect(0, y, w, 1);
       }
 
-      if (v.scratches > 0) {
+      if ((v.scratches ?? 0) > 0) {
         const sAlpha = Math.min(0.75, 0.25 + 0.45 * v.scratches);
         const x1 = (Math.floor(t * 12) * 373 + 91) % w;
         const x2 = (Math.floor(t * 9) * 521 + 211) % w;
@@ -1127,7 +1249,7 @@
         }
       }
 
-      if (v.glitch > 0) {
+      if ((v.glitch ?? 0) > 0) {
         const gAlpha = Math.min(0.65, 0.20 + 0.40 * v.glitch);
         if (Math.sin(t * 19.7) > 0.45) {
           fxCtx.fillStyle = `rgba(0, 255, 255, ${gAlpha.toFixed(2)})`;
@@ -1139,7 +1261,7 @@
         }
       }
 
-      if (v.film_grain > 0) {
+      if ((v.film_grain ?? 0) > 0) {
         const dots = Math.floor(220 * v.film_grain);
         for (let i = 0; i < dots; i++) {
           const gx = Math.random() * w;
@@ -1162,52 +1284,292 @@
       fxState.raf = requestAnimationFrame(tick);
     }
 
-    function resetFxControls() {
-      fxState.preset = "none";
-      document.querySelectorAll(".fx-preset").forEach(btn => btn.classList.toggle("active", btn.dataset.preset === "none"));
-      document.getElementById("fx-contrast").value = "1.0";
-      document.getElementById("fx-saturation").value = "1.0";
-      document.getElementById("fx-warmth").value = "0.0";
-      document.getElementById("fx-white-balance").value = "0.0";
-      ["fx-light-leaks", "fx-film-grain", "fx-scratches", "fx-vhs", "fx-glitch", "fx-lens-flares"].forEach(id => {
-        document.getElementById(id).value = "0";
+    function renderFxSegments() {
+      const list = document.getElementById("fx-segment-list");
+      const bar = document.getElementById("fx-bar");
+      const dur = fxDuration();
+      list.innerHTML = "";
+      bar.querySelectorAll(".fx-bar-seg").forEach(node => node.remove());
+
+      fxState.segments.sort((a, b) => a.start - b.start);
+      fxState.segments.forEach((seg, index) => {
+        const color = FX_COLORS[index % FX_COLORS.length];
+        const endLabel = seg.end === null || seg.end === undefined ? "end" : fmtTime(seg.end);
+        const item = document.createElement("li");
+        item.className = "prompt-row";
+        item.style.borderLeft = `4px solid ${color}`;
+        item.innerHTML = `
+          <div class="prompt-row-head">
+            <strong></strong>
+            <span class="playlist-actions">
+              <button type="button" class="secondary fx-seg-goto">Go to</button>
+              <button type="button" class="secondary fx-seg-edit">Edit</button>
+              <button type="button" class="danger fx-seg-del">Remove</button>
+            </span>
+          </div>
+          <div class="muted prompt-row-meta"></div>
+        `;
+        item.querySelector("strong").textContent = `${fmtTime(seg.start)} → ${endLabel}`;
+        item.querySelector(".prompt-row-meta").textContent = summarizeFx(seg);
+        item.querySelector(".fx-seg-goto").onclick = () => { fxVideo.currentTime = seg.start; };
+        item.querySelector(".fx-seg-edit").onclick = () => {
+          fxState.editingIndex = index;
+          document.getElementById("fx-seg-start").value = fmtTime(seg.start);
+          document.getElementById("fx-seg-end").value = seg.end === null || seg.end === undefined ? "" : fmtTime(seg.end);
+          document.getElementById("fx-add-segment").textContent = "Update segment";
+          document.getElementById("fx-cancel-edit").hidden = false;
+          setFxControlValues(seg);
+        };
+        item.querySelector(".fx-seg-del").onclick = () => {
+          if (fxState.editingIndex === index) cancelFxSegmentEdit();
+          else if (fxState.editingIndex > index) fxState.editingIndex--;
+          fxState.segments.splice(index, 1);
+          renderFxSegments();
+        };
+        list.appendChild(item);
+
+        if (dur > 0) {
+          const s = Math.max(0, Math.min(dur, seg.start));
+          const e = seg.end === null || seg.end === undefined ? dur : Math.max(s, Math.min(dur, seg.end));
+          if (e > s) {
+            const block = document.createElement("div");
+            block.className = "fx-bar-seg";
+            block.style.left = `${(s / dur) * 100}%`;
+            block.style.width = `${((e - s) / dur) * 100}%`;
+            block.style.background = color;
+            block.title = `${fmtTime(s)} → ${endLabel}: ${summarizeFx(seg)}`;
+            bar.appendChild(block);
+          }
+        }
       });
+
+      if (!fxState.segments.length) {
+        list.innerHTML = '<li class="muted">No timed segments added yet.</li>';
+      }
+      drawFxOverlay();
+    }
+
+    function cancelFxSegmentEdit() {
+      fxState.editingIndex = -1;
+      document.getElementById("fx-add-segment").textContent = "Add segment";
+      document.getElementById("fx-cancel-edit").hidden = true;
+      drawFxOverlay();
+    }
+
+    function resetFxControls() {
+      cancelFxSegmentEdit();
+      setFxControlValues(FX_NEUTRAL);
       document.getElementById("fx-status").textContent = "";
-      updateFxReadoutsAndFilter();
+    }
+
+    function updateFxProjectButtons() {
+      const saveBtn = document.getElementById("fx-project-save");
+      const saveNewBtn = document.getElementById("fx-project-save-new");
+      if (fxState.projectId !== null) {
+        saveBtn.textContent = "Update effects project";
+        saveNewBtn.hidden = false;
+      } else {
+        saveBtn.textContent = "Save effects project";
+        saveNewBtn.hidden = true;
+      }
+    }
+
+    async function loadEffectsProjects() {
+      const container = document.getElementById("fx-saved-projects");
+      container.innerHTML = "";
+      try {
+        const response = await fetch("/api/effects-projects");
+        if (!response.ok) return;
+        const projects = await response.json();
+        if (!projects.length) {
+          container.innerHTML = '<span class="muted" style="font-size:13px;">No saved effects projects yet.</span>';
+          return;
+        }
+        projects.forEach(proj => {
+          const chip = document.createElement("div");
+          chip.className = "fx-proj-chip" + (proj.id === fxState.projectId ? " active" : "");
+          chip.innerHTML = `<button type="button" class="fx-proj-load"></button><button type="button" class="fx-proj-del" title="Delete project">✕</button>`;
+          const count = (proj.segments || []).length;
+          const fileName = proj.video_path ? proj.video_path.split(/[\\/]/).pop() : "no file";
+          chip.querySelector(".fx-proj-load").textContent = `${proj.name} (${count} seg · ${fileName})`;
+          chip.querySelector(".fx-proj-load").onclick = () => {
+            fxState.projectId = proj.id;
+            fxState.projectName = proj.name;
+            fxState.segments = (proj.segments || []).map(seg => ({...FX_NEUTRAL, ...seg}));
+            cancelFxSegmentEdit();
+            document.getElementById("fx-project-name").value = proj.name;
+            document.getElementById("fx-project-status").textContent = `Loaded "${proj.name}". You can render it or select a new video file.`;
+            updateFxProjectButtons();
+            if (proj.video_path) {
+              loadFxVideo(proj.video_path, true);
+            } else {
+              document.getElementById("fx-editor").hidden = false;
+              renderFxSegments();
+            }
+            loadEffectsProjects();
+          };
+          chip.querySelector(".fx-proj-del").onclick = async () => {
+            if (!confirm(`Delete effects project "${proj.name}"?`)) return;
+            await fetch(`/api/effects-projects/${encodeURIComponent(proj.id)}`, {method: "DELETE"});
+            if (fxState.projectId === proj.id) {
+              fxState.projectId = null;
+              fxState.projectName = "";
+              document.getElementById("fx-project-name").value = "";
+              updateFxProjectButtons();
+            }
+            document.getElementById("fx-project-status").textContent = `Deleted "${proj.name}"`;
+            await loadEffectsProjects();
+          };
+          container.appendChild(chip);
+        });
+      } catch (error) { /* ignore */ }
+    }
+
+    async function saveEffectsProject(asNew = false) {
+      const name = document.getElementById("fx-project-name").value.trim();
+      const status = document.getElementById("fx-project-status");
+      if (!name) { status.textContent = "Enter an effects project name first."; return; }
+      const segs = fxState.segments.length
+        ? fxState.segments
+        : [{start: 0, end: null, ...getFxControlValues()}];
+      const isUpdate = !asNew && fxState.projectId !== null;
+      const url = isUpdate ? `/api/effects-projects/${encodeURIComponent(fxState.projectId)}` : "/api/effects-projects";
+      const method = isUpdate ? "PUT" : "POST";
+      status.textContent = "Saving effects project...";
+      try {
+        const response = await fetch(url, {
+          method,
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({name, video_path: fxState.path, segments: segs})
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) { status.textContent = data.detail || "Unable to save effects project"; return; }
+        fxState.projectId = data.id;
+        fxState.projectName = data.name;
+        updateFxProjectButtons();
+        status.textContent = isUpdate ? `Updated "${data.name}"` : `Saved effects project "${data.name}"`;
+        await loadEffectsProjects();
+      } catch (error) {
+        status.textContent = "Unable to save effects project";
+      }
     }
 
     function openVideoEffects() {
       fxState.path = "";
+      fxState.segments = [];
+      fxState.projectId = null;
+      fxState.projectName = "";
+      document.getElementById("fx-project-name").value = "";
+      document.getElementById("fx-project-status").textContent = "";
       document.getElementById("fx-path").value = "";
+      document.getElementById("fx-seg-start").value = "0:00";
+      document.getElementById("fx-seg-end").value = "";
       document.getElementById("fx-editor").hidden = true;
       fxVideo.pause();
       fxVideo.removeAttribute("src");
       fxVideo.load();
       resetFxControls();
+      updateFxProjectButtons();
+      renderFxSegments();
       firstPage.hidden = true;
       projectPage.hidden = true;
       cropPage.hidden = true;
       effectsPage.hidden = false;
       newProjectButton.hidden = false;
+      loadEffectsProjects();
     }
 
-    function loadFxVideo(path) {
+    function loadFxVideo(path, keepSegments = true) {
       fxState.path = path;
       document.getElementById("fx-path").value = path;
       document.getElementById("fx-status").textContent = "";
+      if (!keepSegments) fxState.segments = [];
       fxVideo.src = `/api/media/stream?kind=video&path=${encodeURIComponent(path)}`;
       fxVideo.load();
       document.getElementById("fx-editor").hidden = false;
-      updateFxReadoutsAndFilter();
+      renderFxSegments();
       startFxLoop();
     }
+
+    fxVideo.addEventListener("loadedmetadata", () => renderFxSegments());
 
     document.getElementById("video-effects-button").onclick = openVideoEffects;
     document.getElementById("fx-back").onclick = showHome;
     document.getElementById("fx-select").onclick = () => {
-      openMediaPicker("video", "Select a video for effects", loadFxVideo);
+      openMediaPicker("video", "Select a video for effects", path => loadFxVideo(path, true));
     };
     document.getElementById("fx-reset").onclick = resetFxControls;
+    document.getElementById("fx-cancel-edit").onclick = cancelFxSegmentEdit;
+    document.getElementById("fx-clear-segments").onclick = () => {
+      fxState.segments = [];
+      cancelFxSegmentEdit();
+      renderFxSegments();
+    };
+    document.getElementById("fx-start-here").onclick = () => {
+      document.getElementById("fx-seg-start").value = fmtTime(fxVideo.currentTime || 0);
+    };
+    document.getElementById("fx-end-here").onclick = () => {
+      document.getElementById("fx-seg-end").value = fmtTime(fxVideo.currentTime || 0);
+    };
+    document.getElementById("fx-end-max").onclick = () => {
+      document.getElementById("fx-seg-end").value = "";
+    };
+    document.getElementById("fx-bar").onclick = event => {
+      const dur = fxDuration();
+      if (!dur) return;
+      const rect = event.currentTarget.getBoundingClientRect();
+      fxVideo.currentTime = ((event.clientX - rect.left) / rect.width) * dur;
+      drawFxOverlay();
+    };
+    document.getElementById("fx-add-segment").onclick = () => {
+      const status = document.getElementById("fx-status");
+      const start = parseTime(document.getElementById("fx-seg-start").value);
+      const endText = document.getElementById("fx-seg-end").value.trim().toLowerCase();
+      const end = (!endText || endText === "end") ? null : parseTime(endText);
+      if (Number.isNaN(start) || start < 0) { status.textContent = "Enter a valid start time (e.g. 0:10 or 10)."; return; }
+      if (end !== null && (Number.isNaN(end) || end <= start)) { status.textContent = "End time must be after start time (or blank for end of video)."; return; }
+
+      const dur = fxDuration();
+      const checkEnd = end === null ? (dur || Infinity) : end;
+      for (let i = 0; i < fxState.segments.length; i++) {
+        if (i === fxState.editingIndex) continue;
+        const other = fxState.segments[i];
+        const otherEnd = other.end === null || other.end === undefined ? (dur || Infinity) : other.end;
+        if (start < otherEnd - 0.01 && checkEnd > other.start + 0.01) {
+          status.textContent = `Overlaps with segment ${fmtTime(other.start)} → ${other.end === null ? "end" : fmtTime(other.end)}.`;
+          return;
+        }
+      }
+
+      const seg = {start, end, ...getFxControlValues()};
+      if (fxState.editingIndex >= 0) {
+        fxState.segments[fxState.editingIndex] = seg;
+        cancelFxSegmentEdit();
+      } else {
+        fxState.segments.push(seg);
+      }
+      if (end !== null) {
+        document.getElementById("fx-seg-start").value = fmtTime(end);
+        document.getElementById("fx-seg-end").value = "";
+      }
+      status.textContent = "";
+      renderFxSegments();
+    };
+
+    document.getElementById("fx-project-save").onclick = () => saveEffectsProject(false);
+    document.getElementById("fx-project-save-new").onclick = () => saveEffectsProject(true);
+    document.getElementById("fx-project-new").onclick = () => {
+      fxState.projectId = null;
+      fxState.projectName = "";
+      fxState.segments = [];
+      cancelFxSegmentEdit();
+      document.getElementById("fx-project-name").value = "";
+      document.getElementById("fx-project-status").textContent = "Started a new effects project.";
+      updateFxProjectButtons();
+      renderFxSegments();
+      loadEffectsProjects();
+    };
+
     document.querySelectorAll(".fx-preset").forEach(btn => {
       btn.onclick = () => {
         fxState.preset = btn.dataset.preset;
@@ -1226,10 +1588,13 @@
       button.disabled = true;
       status.textContent = "Rendering video effects with FFmpeg...";
       try {
+        const body = fxState.segments.length
+          ? {path: fxState.path, segments: fxState.segments}
+          : {path: fxState.path, ...getFxControlValues()};
         const response = await fetch("/api/media/effects", {
           method: "POST",
           headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({path: fxState.path, ...getFxValues()})
+          body: JSON.stringify(body)
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) { status.textContent = data.detail || "Unable to apply video effects"; return; }

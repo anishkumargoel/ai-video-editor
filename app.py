@@ -1836,13 +1836,12 @@ def crop_media(payload: CropMediaRequest):
 
 
 # ---------------------------------------------------------------------------
-# Video effects (presets, color grading, vintage & stylized textures)
+# Video effects (timed segments, presets, color grading, textures & projects)
 # ---------------------------------------------------------------------------
 VIDEO_EFFECT_PRESETS = {"none", "grayscale", "sepia", "retro", "film"}
 
 
-class VideoEffectsRequest(BaseModel):
-    path: str
+class EffectSettings(BaseModel):
     preset: str = "none"
     contrast: float = 1.0       # 0.5 to 2.0
     saturation: float = 1.0     # 0.0 to 2.0
@@ -1856,43 +1855,70 @@ class VideoEffectsRequest(BaseModel):
     lens_flares: float = 0.0    # 0.0 to 1.0
 
 
+class EffectSegment(EffectSettings):
+    start: float = 0.0
+    end: float | None = None    # None means until the end of the video
+
+
+class VideoEffectsRequest(EffectSettings):
+    path: str
+    segments: list[EffectSegment] = Field(default_factory=list)
+
+
+class EffectsProjectPayload(BaseModel):
+    name: str
+    video_path: str = ""
+    segments: list[EffectSegment] = Field(default_factory=list)
+
+
 def _clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, float(value)))
 
 
-def build_video_effects_filtergraph(payload: VideoEffectsRequest) -> tuple[str, str]:
-    """Build an FFmpeg filter_complex graph for presets, color grading, and textures.
-    Returns (filter_complex, output_label).
-    """
-    preset = (payload.preset or "none").strip().lower()
+def _has_any_effect(settings: EffectSettings) -> bool:
+    preset = (settings.preset or "none").strip().lower()
+    return (
+        preset != "none"
+        or abs(_clamp(settings.contrast, 0.5, 2.0) - 1.0) > 0.005
+        or abs(_clamp(settings.saturation, 0.0, 2.0) - 1.0) > 0.005
+        or abs(_clamp(settings.warmth, -1.0, 1.0)) > 0.005
+        or abs(_clamp(settings.white_balance, -1.0, 1.0)) > 0.005
+        or any(
+            _clamp(v, 0.0, 1.0) > 0.005
+            for v in (
+                settings.light_leaks,
+                settings.film_grain,
+                settings.scratches,
+                settings.vhs,
+                settings.glitch,
+                settings.lens_flares,
+            )
+        )
+    )
+
+
+def build_segment_effect_graphs(in_label: str, out_label: str, settings: EffectSettings, tag: str) -> list[str]:
+    """Build FFmpeg filter_complex statements transforming [in_label] -> [out_label]."""
+    preset = (settings.preset or "none").strip().lower()
     if preset not in VIDEO_EFFECT_PRESETS:
         raise HTTPException(status_code=400, detail=f"Unsupported preset '{preset}'")
 
-    contrast = _clamp(payload.contrast, 0.5, 2.0)
-    saturation = _clamp(payload.saturation, 0.0, 2.0)
-    warmth = _clamp(payload.warmth, -1.0, 1.0)
-    white_balance = _clamp(payload.white_balance, -1.0, 1.0)
-    light_leaks = _clamp(payload.light_leaks, 0.0, 1.0)
-    film_grain = _clamp(payload.film_grain, 0.0, 1.0)
-    scratches = _clamp(payload.scratches, 0.0, 1.0)
-    vhs = _clamp(payload.vhs, 0.0, 1.0)
-    glitch = _clamp(payload.glitch, 0.0, 1.0)
-    lens_flares = _clamp(payload.lens_flares, 0.0, 1.0)
+    if not _has_any_effect(settings):
+        return [f"[{in_label}]format=yuv420p[{out_label}]"]
 
-    has_any = (
-        preset != "none"
-        or abs(contrast - 1.0) > 0.005
-        or abs(saturation - 1.0) > 0.005
-        or abs(warmth) > 0.005
-        or abs(white_balance) > 0.005
-        or any(v > 0.005 for v in (light_leaks, film_grain, scratches, vhs, glitch, lens_flares))
-    )
-    if not has_any:
-        raise HTTPException(status_code=400, detail="Select at least one preset, adjustment, or effect")
+    contrast = _clamp(settings.contrast, 0.5, 2.0)
+    saturation = _clamp(settings.saturation, 0.0, 2.0)
+    warmth = _clamp(settings.warmth, -1.0, 1.0)
+    white_balance = _clamp(settings.white_balance, -1.0, 1.0)
+    light_leaks = _clamp(settings.light_leaks, 0.0, 1.0)
+    film_grain = _clamp(settings.film_grain, 0.0, 1.0)
+    scratches = _clamp(settings.scratches, 0.0, 1.0)
+    vhs = _clamp(settings.vhs, 0.0, 1.0)
+    glitch = _clamp(settings.glitch, 0.0, 1.0)
+    lens_flares = _clamp(settings.lens_flares, 0.0, 1.0)
 
     chain = ["format=rgb24"]
 
-    # 1. Presets
     if preset == "grayscale":
         chain.append("hue=s=0")
     elif preset == "sepia":
@@ -1906,7 +1932,6 @@ def build_video_effects_filtergraph(payload: VideoEffectsRequest) -> tuple[str, 
         chain.append("eq=contrast=1.12:saturation=1.08")
         chain.append("vignette=PI/6")
 
-    # 2. Color grading
     if abs(contrast - 1.0) > 0.005 or abs(saturation - 1.0) > 0.005:
         chain.append(f"eq=contrast={contrast:.3f}:saturation={saturation:.3f}")
 
@@ -1920,7 +1945,6 @@ def build_video_effects_filtergraph(payload: VideoEffectsRequest) -> tuple[str, 
             f":rh={r_shift*0.8:.3f}:gh={g_shift*0.8:.3f}:bh={b_shift*0.8:.3f}"
         )
 
-    # 3. Direct frame textures (fast C filters)
     if vhs > 0.005:
         shift = max(1, int(round(2 + 6 * vhs)))
         chain.append(f"rgbashift=rh={shift}:bh={-shift}:edge=smear")
@@ -1954,10 +1978,9 @@ def build_video_effects_filtergraph(payload: VideoEffectsRequest) -> tuple[str, 
     if film_grain > 0.005:
         chain.append(f"noise=alls={int(round(6 + 38 * film_grain))}:allf=t+u")
 
-    graphs = [f"[0:v:0]{','.join(chain)}[vbase]"]
-    current = "vbase"
+    graphs = [f"[{in_label}]{','.join(chain)}[{tag}_base]"]
+    current = f"{tag}_base"
 
-    # 4. Procedural screen-blended overlays rendered at low res (160x90) for speed, then scaled up
     if light_leaks > 0.005:
         op = min(0.85, 0.20 + 0.65 * light_leaks)
         graphs.append(
@@ -1969,11 +1992,11 @@ def build_video_effects_filtergraph(payload: VideoEffectsRequest) -> tuple[str, 
             "+55*exp(-((X-W*0.94)^2+(Y-H*(0.28+0.12*cos(T*0.7)))^2)/(2*(W*0.20)^2)),0,255)':"
             "b='clip(35*exp(-((X-W*(0.08+0.07*sin(T*0.9)))^2+(Y-H*0.45)^2)/(2*(W*0.22)^2))"
             "+120*exp(-((X-W*0.94)^2+(Y-H*(0.28+0.12*cos(T*0.7)))^2)/(2*(W*0.22)^2)),0,255)',"
-            "gblur=sigma=10[leak_small]"
+            f"gblur=sigma=10[{tag}_leak_s]"
         )
-        graphs.append(f"[leak_small][{current}]scale2ref[leak_full][v_for_leak]")
-        graphs.append(f"[v_for_leak][leak_full]blend=all_mode=screen:all_opacity={op:.2f}:shortest=1[vleak]")
-        current = "vleak"
+        graphs.append(f"[{tag}_leak_s][{current}]scale2ref[{tag}_leak_f][{tag}_v_l]")
+        graphs.append(f"[{tag}_v_l][{tag}_leak_f]blend=all_mode=screen:all_opacity={op:.2f}:shortest=1[{tag}_leak]")
+        current = f"{tag}_leak"
 
     if lens_flares > 0.005:
         op = min(0.90, 0.25 + 0.65 * lens_flares)
@@ -1989,13 +2012,73 @@ def build_video_effects_filtergraph(payload: VideoEffectsRequest) -> tuple[str, 
             "b='clip(195*exp(-((X-W*(0.22+0.12*sin(T*0.6)))^2+(Y-H*0.22)^2)/(2*(W*0.10)^2))"
             "+255*exp(-((Y-H*0.22)^2)/(2*(H*0.035)^2))*exp(-((X-W*(0.22+0.12*sin(T*0.6)))^2)/(2*(W*0.45)^2))"
             "+245*exp(-((X-W*(0.65-0.08*sin(T*0.6)))^2+(Y-H*0.62)^2)/(2*(W*0.07)^2)),0,255)',"
-            "gblur=sigma=5[flare_small]"
+            f"gblur=sigma=5[{tag}_flare_s]"
         )
-        graphs.append(f"[flare_small][{current}]scale2ref[flare_full][v_for_flare]")
-        graphs.append(f"[v_for_flare][flare_full]blend=all_mode=screen:all_opacity={op:.2f}:shortest=1[vflare]")
-        current = "vflare"
+        graphs.append(f"[{tag}_flare_s][{current}]scale2ref[{tag}_flare_f][{tag}_v_f]")
+        graphs.append(f"[{tag}_v_f][{tag}_flare_f]blend=all_mode=screen:all_opacity={op:.2f}:shortest=1[{tag}_flare]")
+        current = f"{tag}_flare"
 
-    graphs.append(f"[{current}]format=yuv420p[vout]")
+    graphs.append(f"[{current}]format=yuv420p[{out_label}]")
+    return graphs
+
+
+def build_video_effects_filtergraph(payload: VideoEffectsRequest, duration: float = 0.0) -> tuple[str, str]:
+    """Build FFmpeg filter_complex for either full-video effects or timed effect segments."""
+    if not payload.segments:
+        if not _has_any_effect(payload):
+            raise HTTPException(status_code=400, detail="Select at least one preset, adjustment, or effect")
+        graphs = build_segment_effect_graphs("0:v:0", "vout", payload, "full")
+        return ";".join(graphs), "[vout]"
+
+    if duration <= 0:
+        raise HTTPException(status_code=400, detail="Could not read the video duration")
+
+    resolved = []
+    for seg in payload.segments:
+        if not math.isfinite(seg.start) or (seg.end is not None and not math.isfinite(seg.end)):
+            raise HTTPException(status_code=400, detail="Segment times must be valid numbers")
+        start = max(0.0, float(seg.start))
+        end = duration if seg.end is None else min(duration, float(seg.end))
+        if start >= duration:
+            continue
+        if end <= start:
+            raise HTTPException(status_code=400, detail="Each segment's end time must be after its start time")
+        resolved.append((start, end, seg))
+
+    if not resolved or not any(_has_any_effect(seg) for _, _, seg in resolved):
+        raise HTTPException(status_code=400, detail="Add at least one effect segment within the video duration")
+
+    resolved.sort(key=lambda item: item[0])
+    for i in range(1, len(resolved)):
+        if resolved[i][0] < resolved[i - 1][1] - 0.01:
+            raise HTTPException(status_code=400, detail="Effect segments cannot overlap")
+
+    # Build contiguous pieces covering [0, duration]; uncovered gaps stay original
+    pieces: list[tuple[float, float, EffectSettings | None]] = []
+    cursor = 0.0
+    for start, end, seg in resolved:
+        if start - cursor >= 0.02:
+            pieces.append((cursor, start, None))
+        pieces.append((start, end, seg))
+        cursor = max(cursor, end)
+    if duration - cursor >= 0.02:
+        pieces.append((cursor, duration, None))
+
+    graphs = []
+    concat_labels = []
+    for idx, (start, end, seg) in enumerate(pieces):
+        if seg is None or not _has_any_effect(seg):
+            graphs.append(f"[0:v:0]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS,format=yuv420p[seg{idx}]")
+        else:
+            graphs.append(f"[0:v:0]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS[raw{idx}]")
+            graphs.extend(build_segment_effect_graphs(f"raw{idx}", f"seg{idx}", seg, f"s{idx}"))
+        concat_labels.append(f"[seg{idx}]")
+
+    if len(concat_labels) == 1:
+        graphs.append(f"{concat_labels[0]}format=yuv420p[vout]")
+    else:
+        graphs.append(f"{''.join(concat_labels)}concat=n={len(concat_labels)}:v=1:a=0,format=yuv420p[vout]")
+
     return ";".join(graphs), "[vout]"
 
 
@@ -2010,11 +2093,18 @@ def apply_video_effects(payload: VideoEffectsRequest):
     if not info["has_video"]:
         raise HTTPException(status_code=400, detail="The selected file has no video stream")
 
-    filter_complex, out_label = build_video_effects_filtergraph(payload)
+    duration = info.get("duration") or 0.0
+    filter_complex, out_label = build_video_effects_filtergraph(payload, duration=duration)
 
     output_path = file.with_name(f"{file.stem}_fx_{uuid.uuid4().hex[:8]}.mp4")
     while output_path.exists():
         output_path = file.with_name(f"{file.stem}_fx_{uuid.uuid4().hex[:8]}.mp4")
+
+    if duration > 0:
+        source_kbps = int((file.stat().st_size * 8) / (duration * 1000))
+        maxrate_kbps = max(2500, min(16000, int(source_kbps * 1.5)))
+    else:
+        maxrate_kbps = 8000
 
     command = [
         ffmpeg, "-hide_banner", "-y",
@@ -2022,7 +2112,9 @@ def apply_video_effects(payload: VideoEffectsRequest):
         "-filter_complex", filter_complex,
         "-map", out_label,
         "-map", "0:a?",
-        "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+        "-maxrate", f"{maxrate_kbps}k", "-bufsize", f"{maxrate_kbps * 2}k",
+        "-pix_fmt", "yuv420p",
         "-c:a", "copy",
         "-movflags", "+faststart",
         str(output_path),
@@ -2040,6 +2132,87 @@ def apply_video_effects(payload: VideoEffectsRequest):
         "path": str(output_path),
         "folder": str(output_path.parent),
     }
+
+
+def _row_to_effects_project(row) -> dict:
+    import json
+    try:
+        segments = json.loads(row["segments_json"])
+    except Exception:
+        segments = []
+    return {
+        "id": row["id"],
+        "name": row["name"],
+        "video_path": row["video_path"],
+        "segments": segments,
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
+@app.get("/api/effects-projects")
+def list_effects_projects(request: Request):
+    session = _require_user_session(request)
+    with db() as connection:
+        rows = connection.execute(
+            "SELECT * FROM effects_projects WHERE user_id = ? ORDER BY updated_at DESC, id DESC",
+            (session["user_id"],),
+        ).fetchall()
+    return [_row_to_effects_project(row) for row in rows]
+
+
+@app.post("/api/effects-projects")
+def create_effects_project(payload: EffectsProjectPayload, request: Request):
+    import json
+    session = _require_user_session(request)
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Effects project name is required")
+    segments_json = json.dumps([seg.model_dump() for seg in payload.segments])
+    with db() as connection:
+        cursor = connection.execute(
+            """INSERT INTO effects_projects (user_id, name, video_path, segments_json)
+               VALUES (?, ?, ?, ?)""",
+            (session["user_id"], name, payload.video_path.strip(), segments_json),
+        )
+        row = connection.execute(
+            "SELECT * FROM effects_projects WHERE id = ?", (cursor.lastrowid,)
+        ).fetchone()
+    return _row_to_effects_project(row)
+
+
+@app.put("/api/effects-projects/{project_id}")
+def update_effects_project(project_id: int, payload: EffectsProjectPayload, request: Request):
+    import json
+    session = _require_user_session(request)
+    name = payload.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Effects project name is required")
+    segments_json = json.dumps([seg.model_dump() for seg in payload.segments])
+    with db() as connection:
+        cursor = connection.execute(
+            """UPDATE effects_projects
+               SET name = ?, video_path = ?, segments_json = ?, updated_at = CURRENT_TIMESTAMP
+               WHERE id = ? AND user_id = ?""",
+            (name, payload.video_path.strip(), segments_json, project_id, session["user_id"]),
+        )
+        if cursor.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Effects project not found")
+        row = connection.execute(
+            "SELECT * FROM effects_projects WHERE id = ?", (project_id,)
+        ).fetchone()
+    return _row_to_effects_project(row)
+
+
+@app.delete("/api/effects-projects/{project_id}")
+def delete_effects_project(project_id: int, request: Request):
+    session = _require_user_session(request)
+    with db() as connection:
+        cursor = connection.execute(
+            "DELETE FROM effects_projects WHERE id = ? AND user_id = ?",
+            (project_id, session["user_id"]),
+        )
+    return {"success": True, "id": project_id, "deleted": cursor.rowcount > 0}
 
 
 # ---------------------------------------------------------------------------
@@ -2130,6 +2303,17 @@ def init_auth_db():
                 user_id INTEGER NOT NULL,
                 role TEXT NOT NULL,
                 expires_at REAL NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS effects_projects (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                video_path TEXT NOT NULL DEFAULT '',
+                segments_json TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES app_users(id) ON DELETE CASCADE
             );
         """)
         user_columns = {row[1] for row in connection.execute("PRAGMA table_info(app_users)")}
